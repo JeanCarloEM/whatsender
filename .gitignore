@@ -1,0 +1,5 @@
+node_modules
+logs
+.wwebjs*
+clientes.csv
+texto.md

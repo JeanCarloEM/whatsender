@@ -45,7 +45,7 @@ O arquivo deve existir na raiz do projeto e conter obrigatoriamente as colunas:
 
 ```csv
 nome,telefone,conta
-Jean Carlo,19982495248,12345
+Jean Carlo,17985648758,12345
 ```
 
 Colunas extras também podem ser usadas no template. Exemplo:

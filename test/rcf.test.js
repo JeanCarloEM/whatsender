@@ -9,6 +9,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  applyListFilter,
   applyTemplate,
   buildSendPlan,
   buildPuppeteerConfig,
@@ -23,11 +24,14 @@ const {
   getWhatsAppClientId,
   getWindowsBrowserCandidates,
   loadAlreadySent,
+  loadClientes,
   loadCsv,
   loadSentRecords,
   parseExecutionOptions,
   parseTemplateParts,
   resolveExecutionPaths,
+  resolveListCsvPath,
+  resolveListSelection,
   resolveModelTemplatePath,
   processCampaign,
   resetSentLog,
@@ -41,6 +45,7 @@ function createFixture(files = {}) {
   const paths = {
     csv: path.join(root, "clientes.csv"),
     template: path.join(root, "texto.md"),
+    listsDir: path.join(root, "listas"),
     modelsDir: path.join(root, "modelos"),
     logsDir: path.join(root, "logs"),
     sent: path.join(root, "logs", "enviados.csv"),
@@ -170,13 +175,21 @@ test("explica perfil de navegador já em uso", () => {
   assert.match(message, /depuração remota/);
 });
 
-test("exige as colunas obrigatórias do RCF no CSV", () => {
-  const { paths } = createFixture({ csv: "Maria,19998240000\n" });
+test("exige somente nome e telefone como colunas obrigatórias do RCF no CSV", () => {
+  const { paths } = createFixture({ csv: "nome,telefone\nMaria,19998240000\n" });
 
-  assert.throws(
-    () => loadCsv(paths.csv),
-    /colunas obrigatórias ausentes: nome, telefone, conta/,
-  );
+  assert.equal(loadCsv(paths.csv).length, 1);
+
+  fs.writeFileSync(paths.csv, "nome,conta\nMaria,12345\n", "utf8");
+  assert.throws(() => loadCsv(paths.csv), /colunas obrigatórias ausentes: telefone/);
+});
+
+test("aceita colunas obrigatórias do CSV sem diferenciar maiúsculas e minúsculas", () => {
+  const { paths } = createFixture({
+    csv: "Nome,Telefone,Conta\nMaria,19998240000,12345\n",
+  });
+
+  assert.equal(loadCsv(paths.csv).length, 1);
 });
 
 test("substitui variável ausente por vazio e permite registrar aviso", () => {
@@ -272,6 +285,57 @@ test("resolve modelo opcional dentro de ./modelos", () => {
     path.join(paths.modelsDir, "faturamento.md"),
   );
   assert.throws(() => resolveModelTemplatePath("../segredo", paths), /Modelo inválido/);
+});
+
+test("resolve lista opcional dentro de ./listas", () => {
+  const { paths } = createFixture();
+
+  assert.equal(parseExecutionOptions(["--lista", "origem"]).listArg, "origem");
+  assert.equal(parseExecutionOptions(["--modelo", "faturamento", "origem"]).listArg, "origem");
+  assert.equal(parseExecutionOptions(["status=ativo"]).listArg, "status=ativo");
+  assert.equal(parseExecutionOptions(["faturamento", "origem"]).listArg, "origem");
+  assert.equal(
+    resolveListCsvPath("origem", paths),
+    path.join(paths.listsDir, "origem.csv"),
+  );
+  assert.equal(
+    resolveExecutionPaths(paths, { listArg: "origem" }).csv,
+    path.join(paths.listsDir, "origem.csv"),
+  );
+  assert.throws(() => resolveListCsvPath("../clientes", paths), /Lista inválida/);
+});
+
+test("interpreta parâmetro de lista com = ou != como filtro sobre clientes.csv", () => {
+  const { paths } = createFixture({
+    csv: "nome,telefone,status\nMaria,19998240000,ativo\nJoão,19998240001,inativo\n",
+  });
+  const filteredPaths = resolveExecutionPaths(paths, { listArg: '"STATUS"="ativo"' });
+  const negativePaths = resolveExecutionPaths(paths, { listArg: "'status'!='inativo'" });
+
+  assert.equal(filteredPaths.csv, paths.csv);
+  assert.deepEqual(filteredPaths.listFilter, {
+    expectedValue: "ativo",
+    field: "STATUS",
+    operator: "=",
+  });
+  assert.deepEqual(loadClientes(filteredPaths).map((cliente) => cliente.nome), ["Maria"]);
+  assert.deepEqual(loadClientes(negativePaths).map((cliente) => cliente.nome), ["Maria"]);
+});
+
+test("filtra clientes por coluna insensível a maiúsculas e minúsculas", () => {
+  const clientes = [
+    { Nome: "Maria", Status: "ativo" },
+    { Nome: "João", Status: "inativo" },
+  ];
+
+  assert.deepEqual(
+    applyListFilter(clientes, { expectedValue: "ativo", field: "status", operator: "=" }),
+    [clientes[0]],
+  );
+  assert.deepEqual(
+    applyListFilter(clientes, { expectedValue: "ativo", field: "STATUS", operator: "!=" }),
+    [clientes[1]],
+  );
 });
 
 test("usa modelo selecionado e resolve anexos relativos à pasta do modelo", async () => {

@@ -15,16 +15,17 @@ Todos os nomes, telefones, contas e caminhos abaixo são meramente ilustrativos.
 
 O projeto segue um RCF local com estas regras principais:
 
-- usa `clientes.csv` e `texto.md`, ou um modelo em `modelos/`, como entradas da campanha;
+- usa `clientes.csv` e `texto.md`, ou arquivos em `listas/` e `modelos/`, como entradas da campanha;
 - valida CSV, template, logs, anexos locais, sessão e navegador antes de enviar;
 - substitui variáveis `${coluna}` a partir das colunas do CSV sem diferenciar maiúsculas e minúsculas;
+- exige apenas `nome` e `telefone`; outras colunas são opcionais;
 - formata `${nome}` com capitalização e no máximo duas palavras;
 - substitui `$diatarde$` por `bom dia` ou `boa tarde` conforme o horário do envio;
 - interpreta `![](CAMINHO_OU_URL)` como anexo local ou remoto;
 - baixa anexos remotos uma única vez para cache temporário;
 - envia anexos no início ou final com o texto como legenda quando possível;
 - valida o número no WhatsApp com `client.getNumberId()` antes do envio;
-- evita reenvio com base no telefone, versão nativa do `texto.md` e prazo configurável;
+- evita reenvio com base no telefone, versão nativa da mensagem e prazo configurável;
 - permite forçar reenvio ou limpar histórico sem burlar validação de telefone;
 - registra enviados, erros, pulos, avisos e versões de mensagem em `logs/`;
 - mantém status compacto e colorido no console durante o processamento;
@@ -73,11 +74,11 @@ Pré-validação RCF concluída. Clientes: 1.
 
 ### `clientes.csv`
 
-O arquivo deve existir na raiz do projeto e conter obrigatoriamente as colunas:
+O arquivo deve existir na raiz do projeto e conter obrigatoriamente apenas as colunas `nome` e `telefone`:
 
 ```csv
-nome,telefone,conta
-Pessoa Exemplo,11999999999,00000
+nome,telefone
+Pessoa Exemplo,11999999999
 ```
 
 Colunas extras também podem ser usadas no template. Exemplo:
@@ -86,6 +87,8 @@ Colunas extras também podem ser usadas no template. Exemplo:
 nome,telefone,conta,agencia
 Pessoa Exemplo,11999999999,00000,0001
 ```
+
+Os nomes das colunas obrigatórias são insensíveis a maiúsculas e minúsculas. Assim, `Nome` e `Telefone` também são aceitos.
 
 Quando `${nome}` for usado na mensagem, o sistema formata o valor automaticamente:
 
@@ -197,6 +200,39 @@ modelos/faturamento.md
 ```
 
 As mesmas regras de `texto.md` se aplicam ao modelo selecionado: variáveis, `$diatarde$`, anexos, URLs, logs e controle inteligente de reenvio. Quando o modelo usar `./` ou `.\` em anexos, o caminho é resolvido a partir da pasta onde o próprio modelo está.
+
+### Listas em `listas/`
+
+Por padrão, o sistema usa `clientes.csv`. Também é possível escolher outro CSV dentro de `listas/`, passando apenas o nome sem extensão:
+
+```powershell
+node main.js --lista base_exemplo
+```
+
+Esse comando usa:
+
+```text
+listas/base_exemplo.csv
+```
+
+Também é possível combinar modelo e lista:
+
+```powershell
+node main.js faturamento base_exemplo
+```
+
+Se o valor da lista contiver `=` ou `!=`, ele será tratado como filtro sobre o `clientes.csv` padrão, não como arquivo:
+
+```powershell
+node main.js --lista "status=ativo"
+node main.js faturamento "status!=inativo"
+```
+
+O nome da coluna à esquerda do filtro é insensível a maiúsculas e minúsculas. O valor à direita é comparado após remover espaços externos. Aspas ao redor do filtro inteiro ou das partes são aceitas, por exemplo:
+
+```powershell
+node main.js --lista '"STATUS"="ativo"'
+```
 
 ### `.env` opcional
 
@@ -314,6 +350,9 @@ Quando um registro é pulado, o console mostra o motivo. O caso mais comum é o 
 | --- | --- |
 | `npm start` | Valida e inicia o envio. |
 | `npm start -- faturamento` | Usa `modelos/faturamento.md` no lugar de `texto.md`. |
+| `node main.js --lista base_exemplo` | Usa `listas/base_exemplo.csv` no lugar de `clientes.csv`. |
+| `node main.js faturamento base_exemplo` | Usa modelo e lista nomeados. |
+| `node main.js --lista "status=ativo"` | Usa `clientes.csv` filtrando a coluna `status`. |
 | `npm run check` | Valida arquivos e configuração sem enviar. |
 | `node main.js --check faturamento` | Valida `modelos/faturamento.md` sem enviar. |
 | `npm test` | Roda a suíte automatizada. |

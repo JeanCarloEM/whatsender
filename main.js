@@ -25,15 +25,27 @@
  * =============================================================================
  *
  * RN001 - Origem dos Dados
- *   Os destinatários devem ser carregados exclusivamente de:
+ *   Os destinatários devem ser carregados por padrão de:
  *
  *      ./clientes.csv
  *
- *   O CSV deve conter obrigatoriamente as colunas:
+ *   Opcionalmente, a execução pode receber um nome de lista sem extensão,
+ *   fazendo os destinatários serem carregados de:
+ *
+ *      ./listas/NOME.csv
+ *
+ *   Se o parâmetro de lista contiver "=" ou "!=", ele deve ser interpretado
+ *   como filtro aplicado ao ./clientes.csv padrão, no formato:
+ *
+ *      coluna=valor
+ *      coluna!=valor
+ *
+ *   O nome da coluna do filtro deve ser insensível a maiúsculas e minúsculas.
+ *
+ *   O CSV deve conter obrigatoriamente apenas as colunas:
  *
  *      nome
  *      telefone
- *      conta
  *
  *   Colunas adicionais devem ficar disponíveis automaticamente como variáveis
  *   no template.
@@ -339,13 +351,14 @@ const { parse } = require("csv-parse/sync");
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 
 const ROOT_DIR = __dirname;
-const REQUIRED_COLUMNS = ["nome", "telefone", "conta"];
+const REQUIRED_COLUMNS = ["nome", "telefone"];
 const DEFAULT_COUNTRY_CODE = "55";
 
 const PATHS = Object.freeze({
   csv: path.resolve(ROOT_DIR, "clientes.csv"),
   template: path.resolve(ROOT_DIR, "texto.md"),
   modelsDir: path.resolve(ROOT_DIR, "modelos"),
+  listsDir: path.resolve(ROOT_DIR, "listas"),
   logsDir: path.resolve(ROOT_DIR, "logs"),
   sent: path.resolve(ROOT_DIR, "logs", "enviados.csv"),
   errors: path.resolve(ROOT_DIR, "logs", "erros.csv"),
@@ -480,6 +493,11 @@ function buildCaseInsensitiveDataMap(data) {
   return map;
 }
 
+function getRecordValue(data, field) {
+  const record = buildCaseInsensitiveDataMap(data).get(normalizeFieldName(field));
+  return record ? record.value : undefined;
+}
+
 function loadCsv(filePath = PATHS.csv) {
   const csv = readTextFile(filePath, "CSV de clientes");
   let rows;
@@ -499,8 +517,9 @@ function loadCsv(filePath = PATHS.csv) {
   }
 
   const header = rows[0].map((column) => String(column).trim());
+  const normalizedHeader = header.map(normalizeFieldName);
   const missingColumns = REQUIRED_COLUMNS.filter(
-    (column) => !header.includes(column),
+    (column) => !normalizedHeader.includes(normalizeFieldName(column)),
   );
 
   if (missingColumns.length > 0) {
@@ -519,6 +538,41 @@ function loadCsv(filePath = PATHS.csv) {
   } catch (err) {
     throw new Error(`CSV inválido: ${err.message}`);
   }
+}
+
+function loadClientes(paths = PATHS) {
+  const clientes = loadCsv(paths.csv);
+
+  if (!paths.listFilter) {
+    return clientes;
+  }
+
+  return applyListFilter(clientes, paths.listFilter);
+}
+
+function applyListFilter(clientes, filter) {
+  if (!filter) {
+    return clientes;
+  }
+
+  const hasColumn = clientes.some((cliente) =>
+    buildCaseInsensitiveDataMap(cliente).has(normalizeFieldName(filter.field)),
+  );
+
+  if (!hasColumn) {
+    throw new Error(`Filtro de lista inválido: coluna não encontrada: ${filter.field}.`);
+  }
+
+  return clientes.filter((cliente) => {
+    const value = String(getRecordValue(cliente, filter.field) ?? "").trim();
+    const expectedValue = String(filter.expectedValue ?? "").trim();
+
+    if (filter.operator === "!=") {
+      return value !== expectedValue;
+    }
+
+    return value === expectedValue;
+  });
 }
 
 function applyTemplate(template, data, options = {}) {
@@ -1266,31 +1320,175 @@ function resetSentLog(filePath = PATHS.sent) {
   fs.writeFileSync(filePath, "telefone;mensagem_hash;data_hora\n", "utf8");
 }
 
-function parseExecutionOptions(argv = process.argv.slice(2)) {
-  const args = new Set(argv);
-  const positionalArgs = argv.filter((arg) => arg && !arg.startsWith("-"));
+function stripWrappingQuotes(value) {
+  let result = String(value || "").trim();
 
-  if (positionalArgs.length > 1) {
+  while (result.length >= 2) {
+    const first = result[0];
+    const last = result[result.length - 1];
+
+    if (!["'", '"'].includes(first) || first !== last) {
+      break;
+    }
+
+    const closingIndex = result.indexOf(first, 1);
+
+    if (closingIndex !== result.length - 1) {
+      break;
+    }
+
+    result = result.slice(1, -1).trim();
+  }
+
+  return result;
+}
+
+function readOptionValue(argv, index) {
+  const value = argv[index + 1];
+
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Opção ${argv[index]} requer um valor.`);
+  }
+
+  return { nextIndex: index + 1, value };
+}
+
+function readListOptionValue(argv, index) {
+  const first = argv[index + 1];
+
+  if (!first || first.startsWith("--")) {
+    throw new Error(`Opção ${argv[index]} requer um valor.`);
+  }
+
+  const operator = stripWrappingQuotes(argv[index + 2] || "");
+  const third = argv[index + 3];
+
+  if ((operator === "=" || operator === "!=") && third && !third.startsWith("--")) {
+    return {
+      nextIndex: index + 3,
+      value: `${first}${operator}${third}`,
+    };
+  }
+
+  return { nextIndex: index + 1, value: first };
+}
+
+function parseExecutionOptions(argv = process.argv.slice(2)) {
+  const positionalArgs = [];
+  const options = {
+    check: false,
+    forceResend: false,
+    help: false,
+    listArg: undefined,
+    resetSent: false,
+    templateName: undefined,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (!arg) {
+      continue;
+    }
+
+    if (arg === "--check") {
+      options.check = true;
+      continue;
+    }
+
+    if (["--force-resend", "--reenviar", "--no-skip-sent"].includes(arg)) {
+      options.forceResend = true;
+      continue;
+    }
+
+    if (["--help", "-h"].includes(arg)) {
+      options.help = true;
+      continue;
+    }
+
+    if (
+      [
+        "--reset-sent",
+        "--reset-enviados",
+        "--clear-sent",
+        "--clear-enviados",
+        "--limpar-enviados",
+      ].includes(arg)
+    ) {
+      options.resetSent = true;
+      continue;
+    }
+
+    if (arg.startsWith("--modelo=") || arg.startsWith("--model=")) {
+      options.templateName = arg.slice(arg.indexOf("=") + 1);
+      continue;
+    }
+
+    if (["--modelo", "--model"].includes(arg)) {
+      const result = readOptionValue(argv, index);
+      options.templateName = result.value;
+      index = result.nextIndex;
+      continue;
+    }
+
+    if (
+      arg.startsWith("--lista=") ||
+      arg.startsWith("--list=") ||
+      arg.startsWith("--csv=")
+    ) {
+      options.listArg = arg.slice(arg.indexOf("=") + 1);
+      continue;
+    }
+
+    if (["--lista", "--list", "--csv"].includes(arg)) {
+      const result = readListOptionValue(argv, index);
+      options.listArg = result.value;
+      index = result.nextIndex;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      throw new Error(`Opção desconhecida: ${arg}`);
+    }
+
+    positionalArgs.push(arg);
+  }
+
+  applyPositionalExecutionArgs(options, positionalArgs);
+  return options;
+}
+
+function applyPositionalExecutionArgs(options, positionalArgs) {
+  if (positionalArgs.length > 2) {
     throw new Error(
-      `Use no máximo um modelo por execução. Recebidos: ${positionalArgs.join(", ")}`,
+      `Use no máximo um modelo e uma lista por execução. Recebidos: ${positionalArgs.join(", ")}`,
     );
   }
 
-  return {
-    check: args.has("--check"),
-    forceResend:
-      args.has("--force-resend") ||
-      args.has("--reenviar") ||
-      args.has("--no-skip-sent"),
-    help: args.has("--help") || args.has("-h"),
-    resetSent:
-      args.has("--reset-sent") ||
-      args.has("--reset-enviados") ||
-      args.has("--clear-sent") ||
-      args.has("--clear-enviados") ||
-      args.has("--limpar-enviados"),
-    templateName: positionalArgs[0],
-  };
+  if (positionalArgs.length === 0) {
+    return;
+  }
+
+  for (const arg of positionalArgs) {
+    if (!options.listArg && isListFilterExpression(arg)) {
+      options.listArg = arg;
+      continue;
+    }
+
+    if (!options.templateName) {
+      options.templateName = arg;
+      continue;
+    }
+
+    if (!options.listArg) {
+      options.listArg = arg;
+      continue;
+    }
+
+    throw new Error(
+      `Argumento posicional inesperado: ${arg}. Use no máximo um modelo e uma lista.`,
+    );
+  }
 }
 
 function resolveModelTemplatePath(templateName, paths = PATHS) {
@@ -1325,9 +1523,126 @@ function resolveModelTemplatePath(templateName, paths = PATHS) {
   return path.resolve(modelsDir, `${modelBaseName}.md`);
 }
 
+function splitFilterExpression(value) {
+  const expression = stripWrappingQuotes(value);
+  let quote = "";
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index];
+
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      }
+
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+
+    if (char === "!" && expression[index + 1] === "=") {
+      return {
+        field: expression.slice(0, index),
+        operator: "!=",
+        value: expression.slice(index + 2),
+      };
+    }
+
+    if (char === "=") {
+      return {
+        field: expression.slice(0, index),
+        operator: "=",
+        value: expression.slice(index + 1),
+      };
+    }
+  }
+
+  return null;
+}
+
+function isListFilterExpression(value) {
+  return Boolean(splitFilterExpression(value));
+}
+
+function parseListFilter(value) {
+  const parts = splitFilterExpression(value);
+
+  if (!parts) {
+    return null;
+  }
+
+  const field = stripWrappingQuotes(parts.field);
+  const expectedValue = stripWrappingQuotes(parts.value);
+
+  if (!field) {
+    throw new Error("Filtro de lista inválido. Informe a coluna antes do operador.");
+  }
+
+  return {
+    expectedValue,
+    field,
+    operator: parts.operator,
+  };
+}
+
+function resolveListCsvPath(listName, paths = PATHS) {
+  const rawName = stripWrappingQuotes(listName);
+
+  if (!rawName) {
+    return paths.csv;
+  }
+
+  if (path.isAbsolute(rawName) || rawName.includes("/") || rawName.includes("\\")) {
+    throw new Error(
+      "Lista inválida. Informe apenas o nome do arquivo dentro de ./listas, sem caminho.",
+    );
+  }
+
+  const ext = path.extname(rawName);
+
+  if (ext && ext.toLocaleLowerCase("pt-BR") !== ".csv") {
+    throw new Error("Lista inválida. Use o nome do arquivo sem extensão .csv.");
+  }
+
+  const listBaseName = ext ? rawName.slice(0, -ext.length) : rawName;
+
+  if (!listBaseName || listBaseName === "." || listBaseName === "..") {
+    throw new Error("Lista inválida. Informe um nome de arquivo válido.");
+  }
+
+  const listsDir = paths.listsDir || path.resolve(path.dirname(paths.csv), "listas");
+  return path.resolve(listsDir, `${listBaseName}.csv`);
+}
+
+function resolveListSelection(listArg, paths = PATHS) {
+  if (!listArg) {
+    return {};
+  }
+
+  const filter = parseListFilter(listArg);
+
+  if (filter) {
+    return {
+      csv: paths.csv,
+      listFilter: filter,
+    };
+  }
+
+  return {
+    csv: resolveListCsvPath(listArg, paths),
+    listName: stripWrappingQuotes(listArg),
+  };
+}
+
 function resolveExecutionPaths(paths = PATHS, options = {}) {
+  const listSelection = resolveListSelection(options.listArg, paths);
+
   return {
     ...paths,
+    ...listSelection,
     template: options.templateName
       ? resolveModelTemplatePath(options.templateName, paths)
       : paths.template,
@@ -1337,20 +1652,28 @@ function resolveExecutionPaths(paths = PATHS, options = {}) {
 function printHelp() {
   console.log(`Uso:
   npm start
-  node main.js [opções] [modelo]
+  node main.js [opções] [modelo] [lista]
 
 Opções:
   --check             Valida arquivos e configuração sem enviar.
   --force-resend      Ignora logs/enviados.csv nesta execução e reenvia.
+  --lista VALOR       Usa ./listas/VALOR.csv ou filtra clientes.csv se contiver = ou !=.
+  --modelo VALOR      Usa ./modelos/VALOR.md.
   --reset-sent        Limpa logs/enviados.csv antes de iniciar.
   --clear-sent        Alias de --reset-sent.
   --reenviar          Alias de --force-resend.
   --reset-enviados    Alias de --reset-sent.
   --help              Mostra esta ajuda.
 
-Modelo:
-  Opcional. Nome sem extensão de um arquivo em ./modelos.
-  Exemplo: node main.js faturamento usa ./modelos/faturamento.md`);
+Modelo e lista:
+  O primeiro argumento posicional é o modelo em ./modelos.
+  O segundo argumento posicional é a lista em ./listas.
+  Se a lista contiver = ou !=, ela vira filtro sobre ./clientes.csv.
+
+Exemplos:
+  node main.js faturamento lista_exemplo
+  node main.js --lista lista_exemplo
+  node main.js faturamento "status=ativo"`);
 }
 
 function resolveBrowserExecutablePath() {
@@ -1714,7 +2037,7 @@ function validateRuntimeFiles(paths = PATHS, options = {}) {
   }
 
   try {
-    clientes = loadCsv(paths.csv);
+    clientes = loadClientes(paths);
   } catch (err) {
     issues.push(err.message);
   }
@@ -1763,13 +2086,14 @@ async function processCampaign(client, paths = PATHS, options = {}) {
   const sentRecords = loadSentRecords(paths.sent);
   const template = loadTemplate(paths.template);
   const messageContext = registerTemplateInCache(template, paths);
-  const clientes = loadCsv(paths.csv);
+  const clientes = loadClientes(paths);
   const status = createStatusReporter(clientes.length);
 
   console.log(`Clientes encontrados: ${clientes.length}`);
 
   for (const cliente of clientes) {
-    const telefone = sanitizePhone(cliente.telefone);
+    const telefoneOriginal = getRecordValue(cliente, "telefone");
+    const telefone = sanitizePhone(telefoneOriginal);
     status.current(`Validando ${maskPhone(telefone)}`);
 
     try {
@@ -1777,7 +2101,7 @@ async function processCampaign(client, paths = PATHS, options = {}) {
         const reason = "Telefone vazio ou sem dígitos.";
 
         appendLog(paths.errors, [
-          cliente.telefone,
+          telefoneOriginal,
           "TELEFONE_INVALIDO",
           reason,
           new Date().toISOString(),
@@ -1871,7 +2195,7 @@ async function processCampaign(client, paths = PATHS, options = {}) {
       await sleep(delay);
     } catch (err) {
       appendLog(paths.errors, [
-        telefone || cliente.telefone,
+        telefone || telefoneOriginal,
         "ERRO_ENVIO",
         err.message,
         new Date().toISOString(),
@@ -1945,6 +2269,16 @@ async function main() {
       );
     }
 
+    if (executionPaths.listFilter) {
+      console.log(
+        `Filtro de lista: ${executionPaths.listFilter.field}${executionPaths.listFilter.operator}${executionPaths.listFilter.expectedValue}`,
+      );
+    } else if (options.listArg) {
+      console.log(
+        `Lista selecionada: ${path.relative(ROOT_DIR, executionPaths.csv)}`,
+      );
+    }
+
     if (options.check) {
       return;
     }
@@ -1974,6 +2308,7 @@ if (require.main === module) {
 module.exports = {
   PATHS,
   REQUIRED_COLUMNS,
+  applyListFilter,
   applyTemplate,
   buildSendPlan,
   buildPuppeteerConfig,
@@ -1991,11 +2326,14 @@ module.exports = {
   getWhatsAppClientId,
   getWindowsBrowserCandidates,
   formatNameForMessage,
+  loadClientes,
   loadSentRecords,
   parseExecutionOptions,
   parseTemplateParts,
   registerTemplateInCache,
   resolveExecutionPaths,
+  resolveListCsvPath,
+  resolveListSelection,
   resolveMediaPath,
   resolveModelTemplatePath,
   resetSentLog,

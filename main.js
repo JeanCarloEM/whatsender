@@ -41,9 +41,14 @@
  * -----------------------------------------------------------------------------
  *
  * RN002 - Template de Mensagem
- *   O template deve ser carregado exclusivamente de:
+ *   O template padrão deve ser carregado de:
  *
  *      ./texto.md
+ *
+ *   Opcionalmente, a execução pode receber um nome de modelo sem extensão,
+ *   fazendo o template ser carregado de:
+ *
+ *      ./modelos/NOME.md
  *
  *   O conteúdo textual deve ser preservado conforme definido no arquivo, após
  *   substituição de variáveis e interpretação dos anexos Markdown.
@@ -58,6 +63,18 @@
  *      ${conta}
  *
  *   ou qualquer outra coluna existente no CSV.
+ *
+ *   O nome da variável dentro de ${} deve ser insensível a maiúsculas e
+ *   minúsculas.
+ *
+ *   O marcador $diatarde$ deve ser substituído no momento do envio por:
+ *
+ *      bom dia
+ *      boa tarde
+ *
+ *   A partir das 12h, usar "boa tarde"; antes disso, "bom dia". Se o marcador
+ *   estiver no início da frase ou logo após ponto seguido de espaços, a primeira
+ *   letra deve ser maiúscula.
  *
  *   Caso a coluna não exista:
  *
@@ -92,7 +109,7 @@
  *
  *   O caminho pode ser:
  *
- *      - Relativo ao diretório de texto.md.
+ *      - Relativo ao diretório do template em uso.
  *      - Absoluto.
  *      - URL http/https.
  *
@@ -328,6 +345,7 @@ const DEFAULT_COUNTRY_CODE = "55";
 const PATHS = Object.freeze({
   csv: path.resolve(ROOT_DIR, "clientes.csv"),
   template: path.resolve(ROOT_DIR, "texto.md"),
+  modelsDir: path.resolve(ROOT_DIR, "modelos"),
   logsDir: path.resolve(ROOT_DIR, "logs"),
   sent: path.resolve(ROOT_DIR, "logs", "enviados.csv"),
   errors: path.resolve(ROOT_DIR, "logs", "erros.csv"),
@@ -444,6 +462,24 @@ function loadTemplate(filePath = PATHS.template) {
   return readTextFile(filePath, "Template");
 }
 
+function normalizeFieldName(field) {
+  return String(field || "").trim().toLocaleLowerCase("pt-BR");
+}
+
+function buildCaseInsensitiveDataMap(data) {
+  const map = new Map();
+
+  for (const [key, value] of Object.entries(data || {})) {
+    const normalizedKey = normalizeFieldName(key);
+
+    if (!map.has(normalizedKey)) {
+      map.set(normalizedKey, { key, value });
+    }
+  }
+
+  return map;
+}
+
 function loadCsv(filePath = PATHS.csv) {
   const csv = readTextFile(filePath, "CSV de clientes");
   let rows;
@@ -487,22 +523,47 @@ function loadCsv(filePath = PATHS.csv) {
 
 function applyTemplate(template, data, options = {}) {
   const missingVariables = new Set();
+  const dataMap = buildCaseInsensitiveDataMap(data);
 
-  return template.replace(/\$\{([^}]+)\}/g, (_, field) => {
-    const key = String(field).trim();
+  return replaceDayPeriodMarkers(
+    String(template || "").replace(/\$\{([^}]+)\}/g, (_, field) => {
+      const key = String(field).trim();
+      const normalizedKey = normalizeFieldName(key);
+      const record = dataMap.get(normalizedKey);
 
-    if (!Object.prototype.hasOwnProperty.call(data, key)) {
-      if (!missingVariables.has(key) && options.onMissingVariable) {
-        options.onMissingVariable(key);
+      if (!record) {
+        if (!missingVariables.has(key) && options.onMissingVariable) {
+          options.onMissingVariable(key);
+        }
+
+        missingVariables.add(key);
+        return "";
       }
 
-      missingVariables.add(key);
-      return "";
+      const value = record.value ?? "";
+      return normalizedKey === "nome" ? formatNameForMessage(value) : value;
+    }),
+    options.now || new Date(),
+  );
+}
+
+function replaceDayPeriodMarkers(template, now = new Date()) {
+  return String(template || "").replace(/\$diatarde\$/gi, (marker, offset) => {
+    const phrase = Number(now.getHours()) >= 12 ? "boa tarde" : "bom dia";
+
+    if (shouldCapitalizeDayPeriodMarker(template, offset)) {
+      return phrase.replace(/^\p{L}/u, (letter) =>
+        letter.toLocaleUpperCase("pt-BR"),
+      );
     }
 
-    const value = data[key] ?? "";
-    return key === "nome" ? formatNameForMessage(value) : value;
+    return phrase;
   });
+}
+
+function shouldCapitalizeDayPeriodMarker(template, offset) {
+  const before = String(template || "").slice(0, offset);
+  return before.trim().length === 0 || /\.\s*$/.test(before);
 }
 
 function parseTemplateParts(renderedTemplate) {
@@ -1207,6 +1268,13 @@ function resetSentLog(filePath = PATHS.sent) {
 
 function parseExecutionOptions(argv = process.argv.slice(2)) {
   const args = new Set(argv);
+  const positionalArgs = argv.filter((arg) => arg && !arg.startsWith("-"));
+
+  if (positionalArgs.length > 1) {
+    throw new Error(
+      `Use no máximo um modelo por execução. Recebidos: ${positionalArgs.join(", ")}`,
+    );
+  }
 
   return {
     check: args.has("--check"),
@@ -1221,13 +1289,55 @@ function parseExecutionOptions(argv = process.argv.slice(2)) {
       args.has("--clear-sent") ||
       args.has("--clear-enviados") ||
       args.has("--limpar-enviados"),
+    templateName: positionalArgs[0],
+  };
+}
+
+function resolveModelTemplatePath(templateName, paths = PATHS) {
+  const rawName = String(templateName || "")
+    .trim()
+    .replace(/^["'](.+)["']$/, "$1")
+    .trim();
+
+  if (!rawName) {
+    return paths.template;
+  }
+
+  if (path.isAbsolute(rawName) || rawName.includes("/") || rawName.includes("\\")) {
+    throw new Error(
+      "Modelo inválido. Informe apenas o nome do arquivo dentro de ./modelos, sem caminho.",
+    );
+  }
+
+  const ext = path.extname(rawName);
+
+  if (ext && ext.toLocaleLowerCase("pt-BR") !== ".md") {
+    throw new Error("Modelo inválido. Use o nome do arquivo sem extensão .md.");
+  }
+
+  const modelBaseName = ext ? rawName.slice(0, -ext.length) : rawName;
+
+  if (!modelBaseName || modelBaseName === "." || modelBaseName === "..") {
+    throw new Error("Modelo inválido. Informe um nome de arquivo válido.");
+  }
+
+  const modelsDir = paths.modelsDir || path.resolve(path.dirname(paths.template), "modelos");
+  return path.resolve(modelsDir, `${modelBaseName}.md`);
+}
+
+function resolveExecutionPaths(paths = PATHS, options = {}) {
+  return {
+    ...paths,
+    template: options.templateName
+      ? resolveModelTemplatePath(options.templateName, paths)
+      : paths.template,
   };
 }
 
 function printHelp() {
   console.log(`Uso:
   npm start
-  node main.js [opções]
+  node main.js [opções] [modelo]
 
 Opções:
   --check             Valida arquivos e configuração sem enviar.
@@ -1236,7 +1346,11 @@ Opções:
   --clear-sent        Alias de --reset-sent.
   --reenviar          Alias de --force-resend.
   --reset-enviados    Alias de --reset-sent.
-  --help              Mostra esta ajuda.`);
+  --help              Mostra esta ajuda.
+
+Modelo:
+  Opcional. Nome sem extensão de um arquivo em ./modelos.
+  Exemplo: node main.js faturamento usa ./modelos/faturamento.md`);
 }
 
 function resolveBrowserExecutablePath() {
@@ -1819,17 +1933,24 @@ async function main() {
       return;
     }
 
-    const validation = validateRuntimeFiles(PATHS);
+    const executionPaths = resolveExecutionPaths(PATHS, options);
+    const validation = validateRuntimeFiles(executionPaths);
     console.log(
       `Pré-validação RCF concluída. Clientes: ${validation.clientesCount}.`,
     );
+
+    if (options.templateName) {
+      console.log(
+        `Modelo selecionado: ${path.relative(ROOT_DIR, executionPaths.template)}`,
+      );
+    }
 
     if (options.check) {
       return;
     }
 
     if (options.resetSent) {
-      resetSentLog(PATHS.sent);
+      resetSentLog(executionPaths.sent);
       console.log("Lista de enviados resetada: logs/enviados.csv");
     }
 
@@ -1837,8 +1958,8 @@ async function main() {
       console.log("Reenvio forçado ativo: logs/enviados.csv será ignorado.");
     }
 
-    const client = createWhatsAppClient(PATHS);
-    registerClientHandlers(client, PATHS, options);
+    const client = createWhatsAppClient(executionPaths);
+    registerClientHandlers(client, executionPaths, options);
     await client.initialize();
   } catch (err) {
     console.error(formatBrowserStartupError(err, PATHS));
@@ -1874,7 +1995,9 @@ module.exports = {
   parseExecutionOptions,
   parseTemplateParts,
   registerTemplateInCache,
+  resolveExecutionPaths,
   resolveMediaPath,
+  resolveModelTemplatePath,
   resetSentLog,
   sendRenderedTemplate,
   validateTemplateMediaReferences,

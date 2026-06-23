@@ -15,10 +15,11 @@ Todos os nomes, telefones, contas e caminhos abaixo são meramente ilustrativos.
 
 O projeto segue um RCF local com estas regras principais:
 
-- usa somente `clientes.csv` e `texto.md` como entradas da campanha;
+- usa `clientes.csv` e `texto.md`, ou um modelo em `modelos/`, como entradas da campanha;
 - valida CSV, template, logs, anexos locais, sessão e navegador antes de enviar;
-- substitui variáveis `${coluna}` a partir das colunas do CSV;
+- substitui variáveis `${coluna}` a partir das colunas do CSV sem diferenciar maiúsculas e minúsculas;
 - formata `${nome}` com capitalização e no máximo duas palavras;
+- substitui `$diatarde$` por `bom dia` ou `boa tarde` conforme o horário do envio;
 - interpreta `![](CAMINHO_OU_URL)` como anexo local ou remoto;
 - baixa anexos remotos uma única vez para cache temporário;
 - envia anexos no início ou final com o texto como legenda quando possível;
@@ -103,7 +104,22 @@ Boa tarde ${nome}!
 Relativo à sua conta ${conta}, podemos falar agora?
 ```
 
+O nome da variável dentro de `${}` é insensível a maiúsculas e minúsculas. Assim, `${nome}`, `${NOME}` e `${NoMe}` usam a mesma coluna `nome`.
+
 Se uma variável não existir no CSV, ela será substituída por vazio e registrada em `logs/avisos.csv`.
+
+O marcador `$diatarde$` é substituído no momento do envio:
+
+- antes das 12h: `bom dia`;
+- a partir das 12h: `boa tarde`.
+
+Se o marcador estiver no início da frase ou logo após um ponto, mesmo com espaços no meio, o texto começa com maiúscula:
+
+```markdown
+$diatarde$, ${NOME}!
+
+Retornamos sobre a conta ${CONTA}. $diatarde$, podemos seguir?
+```
 
 Exemplo completo e genérico de `texto.md`:
 
@@ -148,7 +164,7 @@ Arquivo remoto:
 ![](https://exemplo.invalid/arquivo.zip)
 ```
 
-O caminho pode ser relativo ao `texto.md`, absoluto ou uma URL `http`/`https`. URLs são baixadas para uma pasta temporária e reutilizadas quando o mesmo endereço aparecer novamente. Imagens são enviadas como mídia; outros tipos, como PDF ou ZIP, são enviados como documento.
+O caminho pode ser relativo ao arquivo de mensagem em uso, absoluto ou uma URL `http`/`https`. URLs são baixadas para uma pasta temporária e reutilizadas quando o mesmo endereço aparecer novamente. Imagens são enviadas como mídia; outros tipos, como PDF ou ZIP, são enviados como documento.
 
 Se o anexo estiver no início ou no final do `texto.md`, o texto adjacente será enviado como legenda do próprio anexo, evitando uma mensagem de texto separada:
 
@@ -159,6 +175,28 @@ Mensagem enviada como legenda do anexo.
 ```
 
 Quando o anexo estiver no meio do texto, o sistema envia as partes separadamente para preservar a ordem definida no arquivo.
+
+### Modelos em `modelos/`
+
+Por padrão, o sistema usa `texto.md`. Também é possível escolher outro arquivo Markdown dentro de `modelos/`, passando apenas o nome sem extensão:
+
+```powershell
+node main.js faturamento
+```
+
+Com `npm start`, passe o argumento depois de `--`:
+
+```powershell
+npm start -- faturamento
+```
+
+Esse comando usa:
+
+```text
+modelos/faturamento.md
+```
+
+As mesmas regras de `texto.md` se aplicam ao modelo selecionado: variáveis, `$diatarde$`, anexos, URLs, logs e controle inteligente de reenvio. Quando o modelo usar `./` ou `.\` em anexos, o caminho é resolvido a partir da pasta onde o próprio modelo está.
 
 ### `.env` opcional
 
@@ -275,7 +313,9 @@ Quando um registro é pulado, o console mostra o motivo. O caso mais comum é o 
 | Comando | Função |
 | --- | --- |
 | `npm start` | Valida e inicia o envio. |
+| `npm start -- faturamento` | Usa `modelos/faturamento.md` no lugar de `texto.md`. |
 | `npm run check` | Valida arquivos e configuração sem enviar. |
+| `node main.js --check faturamento` | Valida `modelos/faturamento.md` sem enviar. |
 | `npm test` | Roda a suíte automatizada. |
 | `npm run start:force` | Reenvia ignorando o histórico de enviados. |
 | `npm run start:clear` | Limpa `logs/enviados.csv` antes de iniciar. |
@@ -316,7 +356,7 @@ node main.js --reset-enviados
 O sistema também evita reenvio de forma inteligente:
 
 - se a mesma mensagem, ou uma mensagem menos de 10% diferente, foi enviada para o telefone há menos de 48 horas, ele pula;
-- se o `texto.md` mudou 10% ou mais, ele considera uma mensagem nova e envia sem precisar forçar;
+- se o arquivo de mensagem em uso mudou 10% ou mais, ele considera uma mensagem nova e envia sem precisar forçar;
 - se passaram mais de 48 horas, ele permite reenviar mesmo que a mensagem seja igual.
 
 Esses limites podem ser ajustados no `.env`. Telefones inválidos ou números não encontrados no WhatsApp continuam sem envio.
@@ -327,7 +367,7 @@ Os logs ficam em `logs/`:
 
 - `enviados.csv`: números já enviados, usado para evitar duplicidade.
 - `erros.csv`: falhas de envio, números inválidos ou números sem WhatsApp.
-- `mensagens.json`: cache local das versões nativas de `texto.md` usadas para comparar mudanças.
+- `mensagens.json`: cache local das versões nativas dos arquivos de mensagem usadas para comparar mudanças.
 - `pulos.csv`: registros pulados com o motivo.
 - `avisos.csv`: avisos, como variáveis ausentes no template.
 

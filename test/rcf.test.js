@@ -25,7 +25,10 @@ const {
   loadAlreadySent,
   loadCsv,
   loadSentRecords,
+  parseExecutionOptions,
   parseTemplateParts,
+  resolveExecutionPaths,
+  resolveModelTemplatePath,
   processCampaign,
   resetSentLog,
   sendRenderedTemplate,
@@ -38,6 +41,7 @@ function createFixture(files = {}) {
   const paths = {
     csv: path.join(root, "clientes.csv"),
     template: path.join(root, "texto.md"),
+    modelsDir: path.join(root, "modelos"),
     logsDir: path.join(root, "logs"),
     sent: path.join(root, "logs", "enviados.csv"),
     errors: path.join(root, "logs", "erros.csv"),
@@ -185,6 +189,29 @@ test("substitui variável ausente por vazio e permite registrar aviso", () => {
   assert.deepEqual(missing, ["inexistente"]);
 });
 
+test("resolve variáveis do template sem diferenciar maiúsculas e minúsculas", () => {
+  const result = applyTemplate(
+    "Olá ${NOME}, conta ${CoNtA}. ${EXTRA}",
+    { conta: "12345", extra: "ok", nome: "ana maria silva" },
+  );
+
+  assert.equal(result, "Olá Ana Maria, conta 12345. ok");
+});
+
+test("substitui $diatarde$ conforme horário e início de frase", () => {
+  const morning = new Date(2026, 5, 23, 9, 0, 0);
+  const afternoon = new Date(2026, 5, 23, 13, 0, 0);
+
+  assert.equal(
+    applyTemplate("$diatarde$, ${nome}. tudo bem? $diatarde$.", { nome: "maria" }, { now: morning }),
+    "Bom dia, Maria. tudo bem? bom dia.",
+  );
+  assert.equal(
+    applyTemplate("Olá, $diatarde$. Depois.   $diatarde$!", {}, { now: afternoon }),
+    "Olá, boa tarde. Depois.   Boa tarde!",
+  );
+});
+
 test("interpreta notação markdown de anexo preservando a ordem", () => {
   const parts = parseTemplateParts("Antes\n![](arquivo.pdf)\nDepois");
 
@@ -230,6 +257,64 @@ test("pré-validação cria arquivos de auditoria sem iniciar WhatsApp", () => {
   assert.equal(fs.existsSync(paths.errors), true);
   assert.equal(fs.existsSync(paths.skipped), true);
   assert.equal(fs.existsSync(paths.warnings), true);
+});
+
+test("resolve modelo opcional dentro de ./modelos", () => {
+  const { paths } = createFixture();
+
+  assert.equal(parseExecutionOptions(["--check", "faturamento"]).templateName, "faturamento");
+  assert.equal(
+    resolveModelTemplatePath("faturamento", paths),
+    path.join(paths.modelsDir, "faturamento.md"),
+  );
+  assert.equal(
+    resolveExecutionPaths(paths, { templateName: "faturamento" }).template,
+    path.join(paths.modelsDir, "faturamento.md"),
+  );
+  assert.throws(() => resolveModelTemplatePath("../segredo", paths), /Modelo inválido/);
+});
+
+test("usa modelo selecionado e resolve anexos relativos à pasta do modelo", async () => {
+  const { paths } = createFixture({
+    template: "Mensagem padrão ${nome}",
+  });
+  fs.mkdirSync(paths.modelsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(paths.modelsDir, "faturamento.md"),
+    "Modelo ${NOME}\n![](./boleto.pdf)",
+    "utf8",
+  );
+  fs.writeFileSync(path.join(paths.modelsDir, "boleto.pdf"), "pdf fictício", "utf8");
+
+  const executionPaths = resolveExecutionPaths(paths, { templateName: "faturamento" });
+  const calls = [];
+  const client = {
+    async getNumberId(phone) {
+      calls.push(["getNumberId", phone]);
+      return { _serialized: `${phone}@c.us` };
+    },
+    async sendMessage(to, content, options) {
+      calls.push([
+        "sendMessage",
+        to,
+        typeof content === "string" ? content : content.filename,
+        options,
+      ]);
+    },
+  };
+
+  validateRuntimeFiles(executionPaths, { checkBrowser: false });
+  await processCampaign(client, executionPaths);
+
+  assert.deepEqual(calls, [
+    ["getNumberId", "5519998240000"],
+    [
+      "sendMessage",
+      "5519998240000@c.us",
+      "boleto.pdf",
+      { caption: "Modelo Maria", sendMediaAsDocument: true },
+    ],
+  ]);
 });
 
 test("carrega enviados ignorando o cabeçalho de auditoria", () => {

@@ -13,6 +13,7 @@ const {
   applyTemplate,
   buildSendPlan,
   buildPuppeteerConfig,
+  createStatusReporter,
   formatBrowserStartupError,
   formatNameForMessage,
   getBrowserExecutableNames,
@@ -175,6 +176,32 @@ test("explica perfil de navegador já em uso", () => {
   assert.match(message, /depuração remota/);
 });
 
+test("status interativo renderiza sem erro", () => {
+  const originalWrite = process.stdout.write;
+  const originalIsTTY = process.stdout.isTTY;
+
+  process.stdout.write = () => true;
+  Object.defineProperty(process.stdout, "isTTY", {
+    configurable: true,
+    value: true,
+  });
+
+  try {
+    const status = createStatusReporter(1);
+    assert.doesNotThrow(() => {
+      status.current("Teste");
+      status.sent("OK");
+      status.finish();
+    });
+  } finally {
+    process.stdout.write = originalWrite;
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value: originalIsTTY,
+    });
+  }
+});
+
 test("exige somente nome e telefone como colunas obrigatórias do RCF no CSV", () => {
   const { paths } = createFixture({ csv: "nome,telefone\nMaria,19998240000\n" });
 
@@ -190,6 +217,18 @@ test("aceita colunas obrigatórias do CSV sem diferenciar maiúsculas e minúscu
   });
 
   assert.equal(loadCsv(paths.csv).length, 1);
+});
+
+test("permite coluna opcional sem valor na linha do CSV", () => {
+  const { paths } = createFixture({
+    csv: "nome,telefone,conta\nMaria,19998240000\n",
+  });
+
+  const rows = loadCsv(paths.csv);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].nome, "Maria");
+  assert.equal(rows[0].telefone, "19998240000");
 });
 
 test("substitui variável ausente por vazio e permite registrar aviso", () => {

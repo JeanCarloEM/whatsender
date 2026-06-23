@@ -127,12 +127,41 @@ Na primeira execução, escaneie o QR Code exibido no terminal. Depois disso, a 
 
 Durante o envio, o console exibe uma linha de status compacta com progresso, enviados, pulados, erros e avisos. A linha é atualizada no lugar para evitar excesso de mensagens na tela.
 
+Quando um registro é pulado, o console mostra o motivo. O caso mais comum é o telefone já existir em `logs/enviados.csv`.
+
+Para reenviar mesmo quando o telefone já consta como enviado:
+
+```powershell
+npm run start:force
+```
+
+Alias em português:
+
+```powershell
+node main.js --reenviar
+```
+
+Para limpar a lista de enviados antes de iniciar uma nova campanha:
+
+```powershell
+npm run start:reset
+```
+
+Alias em português:
+
+```powershell
+node main.js --reset-enviados
+```
+
+Essas opções só afetam o pulo por histórico de envio. Telefones inválidos ou números não encontrados no WhatsApp continuam sem envio.
+
 ## Logs
 
 Os logs ficam em `logs/`:
 
 - `enviados.csv`: números já enviados, usado para evitar duplicidade.
 - `erros.csv`: falhas de envio, números inválidos ou números sem WhatsApp.
+- `pulos.csv`: registros pulados com o motivo.
 - `avisos.csv`: avisos, como variáveis ausentes no template.
 
 Se a execução for interrompida, rode `npm start` novamente. O sistema consulta `logs/enviados.csv` e não reenvia para números já concluídos.

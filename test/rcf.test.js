@@ -15,6 +15,7 @@ const {
   loadCsv,
   parseTemplateParts,
   processCampaign,
+  resetSentLog,
   sendRenderedTemplate,
   sanitizePhone,
   validateRuntimeFiles,
@@ -28,6 +29,7 @@ function createFixture(files = {}) {
     logsDir: path.join(root, "logs"),
     sent: path.join(root, "logs", "enviados.csv"),
     errors: path.join(root, "logs", "erros.csv"),
+    skipped: path.join(root, "logs", "pulos.csv"),
     warnings: path.join(root, "logs", "avisos.csv"),
     auth: path.join(root, ".wwebjs_auth"),
     mediaCacheDir: path.join(root, "media-cache"),
@@ -95,6 +97,7 @@ test("pré-validação cria arquivos de auditoria sem iniciar WhatsApp", () => {
   assert.equal(result.clientesCount, 1);
   assert.equal(fs.existsSync(paths.sent), true);
   assert.equal(fs.existsSync(paths.errors), true);
+  assert.equal(fs.existsSync(paths.skipped), true);
   assert.equal(fs.existsSync(paths.warnings), true);
 });
 
@@ -125,6 +128,42 @@ test("não envia duplicado e não revalida número já enviado", async () => {
   await processCampaign(client, paths);
 
   assert.deepEqual(calls, []);
+  assert.match(fs.readFileSync(paths.skipped, "utf8"), /JA_ENVIADO/);
+  assert.match(fs.readFileSync(paths.skipped, "utf8"), /--force-resend/);
+});
+
+test("force resend ignora histórico de enviados nessa execução", async () => {
+  const { paths } = createFixture();
+  fs.mkdirSync(paths.logsDir, { recursive: true });
+  fs.writeFileSync(paths.sent, "telefone;data_hora\n5519998240000;2026-06-23\n");
+
+  const calls = [];
+  const client = {
+    async getNumberId(phone) {
+      calls.push(["getNumberId", phone]);
+      return { _serialized: `${phone}@c.us` };
+    },
+    async sendMessage(to, message) {
+      calls.push(["sendMessage", to, message]);
+    },
+  };
+
+  await processCampaign(client, paths, { forceResend: true });
+
+  assert.deepEqual(calls, [
+    ["getNumberId", "5519998240000"],
+    ["sendMessage", "5519998240000@c.us", "Olá Maria, conta 12345. "],
+  ]);
+});
+
+test("resetSentLog limpa a lista de enviados preservando cabeçalho", () => {
+  const { paths } = createFixture();
+  fs.mkdirSync(paths.logsDir, { recursive: true });
+  fs.writeFileSync(paths.sent, "telefone;data_hora\n5519998240000;2026-06-23\n");
+
+  resetSentLog(paths.sent);
+
+  assert.equal(fs.readFileSync(paths.sent, "utf8"), "telefone;data_hora\n");
 });
 
 test("valida existência no WhatsApp antes de enviar", async () => {

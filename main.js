@@ -259,6 +259,7 @@ const PATHS = Object.freeze({
   logsDir: path.resolve(ROOT_DIR, "logs"),
   sent: path.resolve(ROOT_DIR, "logs", "enviados.csv"),
   errors: path.resolve(ROOT_DIR, "logs", "erros.csv"),
+  skipped: path.resolve(ROOT_DIR, "logs", "pulos.csv"),
   warnings: path.resolve(ROOT_DIR, "logs", "avisos.csv"),
   auth: path.resolve(ROOT_DIR, ".wwebjs_auth"),
   mediaCacheDir: path.resolve(os.tmpdir(), "whatsapp-rcf-media"),
@@ -704,6 +705,15 @@ function createStatusReporter(total) {
       state.current = message;
       render();
     },
+    event(message, color = "dim") {
+      if (interactive) {
+        readline.clearLine(process.stdout, 0);
+        readline.cursorTo(process.stdout, 0);
+      }
+
+      console.log(colorize(message, color));
+      render();
+    },
     finish() {
       if (interactive) {
         process.stdout.write("\n");
@@ -753,6 +763,7 @@ function initLogFiles(paths = PATHS) {
   ensureDirectory(paths.logsDir);
   ensureLogFile(paths.sent, "telefone;data_hora");
   ensureLogFile(paths.errors, "telefone;codigo;detalhe;data_hora");
+  ensureLogFile(paths.skipped, "telefone;codigo;detalhe;data_hora");
   ensureLogFile(paths.warnings, "telefone;codigo;detalhe;data_hora");
 }
 
@@ -786,6 +797,41 @@ function loadAlreadySent(filePath = PATHS.sent) {
       .map((line) => line.split(";")[0])
       .filter((telefone) => telefone && telefone !== "telefone"),
   );
+}
+
+function resetSentLog(filePath = PATHS.sent) {
+  fs.writeFileSync(filePath, "telefone;data_hora\n", "utf8");
+}
+
+function parseExecutionOptions(argv = process.argv.slice(2)) {
+  const args = new Set(argv);
+
+  return {
+    check: args.has("--check"),
+    forceResend:
+      args.has("--force-resend") ||
+      args.has("--reenviar") ||
+      args.has("--no-skip-sent"),
+    help: args.has("--help") || args.has("-h"),
+    resetSent:
+      args.has("--reset-sent") ||
+      args.has("--reset-enviados") ||
+      args.has("--limpar-enviados"),
+  };
+}
+
+function printHelp() {
+  console.log(`Uso:
+  npm start
+  node main.js [opções]
+
+Opções:
+  --check             Valida arquivos e configuração sem enviar.
+  --force-resend      Ignora logs/enviados.csv nesta execução e reenvia.
+  --reset-sent        Limpa logs/enviados.csv antes de iniciar.
+  --reenviar          Alias de --force-resend.
+  --reset-enviados    Alias de --reset-sent.
+  --help              Mostra esta ajuda.`);
 }
 
 function resolveBrowserExecutablePath() {
@@ -967,7 +1013,8 @@ function validateRuntimeFiles(paths = PATHS, options = {}) {
   };
 }
 
-async function processCampaign(client, paths = PATHS) {
+async function processCampaign(client, paths = PATHS, options = {}) {
+  const forceResend = Boolean(options.forceResend);
   const enviados = loadAlreadySent(paths.sent);
   const template = loadTemplate(paths.template);
   const clientes = loadCsv(paths.csv);
@@ -981,32 +1028,56 @@ async function processCampaign(client, paths = PATHS) {
 
     try {
       if (!telefone) {
+        const reason = "Telefone vazio ou sem dígitos.";
+
         appendLog(paths.errors, [
           cliente.telefone,
           "TELEFONE_INVALIDO",
-          "Telefone vazio ou sem dígitos.",
+          reason,
           new Date().toISOString(),
         ]);
 
+        status.event(`Pulando registro: ${reason}`, "red");
         status.error("Telefone inválido");
         continue;
       }
 
-      if (enviados.has(telefone)) {
+      if (!forceResend && enviados.has(telefone)) {
+        const reason =
+          "Telefone já consta em logs/enviados.csv; use --force-resend para reenviar ou --reset-sent para limpar a lista.";
+
+        appendLog(paths.skipped, [
+          telefone,
+          "JA_ENVIADO",
+          reason,
+          new Date().toISOString(),
+        ]);
+
+        status.event(`Pulando ${maskPhone(telefone)}: ${reason}`, "yellow");
         status.skip(`Já enviado ${maskPhone(telefone)}`);
         continue;
+      }
+
+      if (forceResend && enviados.has(telefone)) {
+        status.event(
+          `Reenviando ${maskPhone(telefone)}: --force-resend ativo.`,
+          "yellow",
+        );
       }
 
       const numberId = await client.getNumberId(telefone);
 
       if (!numberId) {
+        const reason = "Número não encontrado no WhatsApp.";
+
         appendLog(paths.errors, [
           telefone,
           "NAO_REGISTRADO",
-          "Número não encontrado no WhatsApp.",
+          reason,
           new Date().toISOString(),
         ]);
 
+        status.event(`Pulando ${maskPhone(telefone)}: ${reason}`, "red");
         status.error(`Sem WhatsApp ${maskPhone(telefone)}`);
         continue;
       }
@@ -1062,7 +1133,7 @@ function createWhatsAppClient(paths = PATHS) {
   });
 }
 
-function registerClientHandlers(client, paths = PATHS) {
+function registerClientHandlers(client, paths = PATHS, options = {}) {
   client.on("qr", (qr) => {
     console.clear();
     console.log("Escaneie o QR Code:");
@@ -1073,7 +1144,7 @@ function registerClientHandlers(client, paths = PATHS) {
     console.log("WhatsApp conectado.");
 
     try {
-      await processCampaign(client, paths);
+      await processCampaign(client, paths, options);
       console.log("Processamento concluído.");
     } catch (err) {
       console.error("Processamento interrompido:", err.message);
@@ -1093,17 +1164,33 @@ function registerClientHandlers(client, paths = PATHS) {
 
 async function main() {
   try {
+    const options = parseExecutionOptions();
+
+    if (options.help) {
+      printHelp();
+      return;
+    }
+
     const validation = validateRuntimeFiles(PATHS);
     console.log(
       `Pré-validação RCF concluída. Clientes: ${validation.clientesCount}.`,
     );
 
-    if (process.argv.includes("--check")) {
+    if (options.check) {
       return;
     }
 
+    if (options.resetSent) {
+      resetSentLog(PATHS.sent);
+      console.log("Lista de enviados resetada: logs/enviados.csv");
+    }
+
+    if (options.forceResend) {
+      console.log("Reenvio forçado ativo: logs/enviados.csv será ignorado.");
+    }
+
     const client = createWhatsAppClient(PATHS);
-    registerClientHandlers(client, PATHS);
+    registerClientHandlers(client, PATHS, options);
     await client.initialize();
   } catch (err) {
     console.error(err.message);
@@ -1123,8 +1210,10 @@ module.exports = {
   findPuppeteerCacheBrowsers,
   getWindowsBrowserCandidates,
   formatNameForMessage,
+  parseExecutionOptions,
   parseTemplateParts,
   resolveMediaPath,
+  resetSentLog,
   sendRenderedTemplate,
   validateTemplateMediaReferences,
   loadAlreadySent,

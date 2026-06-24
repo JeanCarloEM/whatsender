@@ -1,0 +1,7 @@
+nome,telefone,status,valor,taxa,bonus,parcelas,saldo,limite,score,categoria,conta,aprovado,vigente,bloqueado,observacao,idade,tentativas
+Ana Alpha,11990000001,ativo,"1.234,50","10,5",100,3,500,2000,91,VIP,A100,sim,válido,não,Cliente premium,34,0
+Bruno Beta,11990000002,inativo,800,0,0,4,-50,900,62,comum,,nao,vencido,true,,17,2
+Carla Gama,11990000003,habilitado,"2.500,00","5,25",250,5,1200,3000,88,vip,C300,verdadeiro,vigente,false,Tem desconto,29,1
+Diego Delta,11990000004,suspenso,"100,75","2,5",0,1,0,500,45,risco,D400,falso,cancelado,1,Revisar,41,3
+Eva Epsilon,11990000005,aprovado,999.99,"0,01",50,2,100,1000,70,teste,E500,1,true,0,Texto livre,50,0
+Fabio Zeta,11990000006,inválido,abc,,10,2,20,100,10,comum,F600,inápto,inválido,desabilitado,Sem numero,vinte,

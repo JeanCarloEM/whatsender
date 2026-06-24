@@ -15,6 +15,7 @@ const {
   buildPuppeteerConfig,
   createStatusReporter,
   evaluateExpression,
+  evaluateFilterExpression,
   formatBrowserStartupError,
   formatNameForMessage,
   getBrowserExecutableNames,
@@ -43,6 +44,9 @@ const {
   sanitizePhone,
   validateRuntimeFiles,
 } = require("../main");
+
+const COMPLEX_CLIENTS_CSV = path.join(__dirname, "clientes-complexos.csv");
+const COMPLEX_EXPECTED_JSON = path.join(__dirname, "expressions-complexas.expected.json");
 
 function createFixture(files = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "whatsapp-rcf-"));
@@ -99,6 +103,14 @@ function withEnv(values, fn) {
       }
     }
   }
+}
+
+function loadComplexExpressionFixture() {
+  const clientes = loadCsv(COMPLEX_CLIENTS_CSV);
+  const expected = JSON.parse(fs.readFileSync(COMPLEX_EXPECTED_JSON, "utf8"));
+  const byName = new Map(clientes.map((cliente) => [cliente.nome, cliente]));
+
+  return { byName, clientes, expected };
 }
 
 test("normaliza telefone e adiciona código do Brasil quando necessário", () => {
@@ -452,6 +464,86 @@ test("permite matemática em filtros e no template", () => {
     applyTemplate("Total: ${(valor+taxa)*2}", clientes[0]),
     "Total: 25",
   );
+});
+
+test("parser avalia filtros complexos contra fixture versionada", () => {
+  const { clientes, expected } = loadComplexExpressionFixture();
+
+  for (const testCase of expected.filterCases) {
+    const ast = parseExpression(testCase.expression);
+    const selected = applyListFilter(clientes, {
+      ast,
+      expression: testCase.expression,
+    }).map((cliente) => cliente.nome);
+
+    assert.deepEqual(
+      selected,
+      testCase.expectedNames,
+      `Filtro complexo falhou: ${testCase.name}`,
+    );
+
+    const directSelected = clientes
+      .filter((cliente) => evaluateFilterExpression(ast, cliente))
+      .map((cliente) => cliente.nome);
+
+    assert.deepEqual(
+      directSelected,
+      testCase.expectedNames,
+      `Avaliação direta falhou: ${testCase.name}`,
+    );
+  }
+});
+
+test("parser avalia expressões complexas por cliente da fixture", () => {
+  const { byName, expected } = loadComplexExpressionFixture();
+
+  for (const testCase of expected.evaluationCases) {
+    const cliente = byName.get(testCase.rowName);
+    assert.ok(cliente, `Cliente não encontrado na fixture: ${testCase.rowName}`);
+
+    const result = evaluateExpression(testCase.expression, cliente).value;
+
+    if (typeof testCase.expectedValue === "number") {
+      assert.ok(
+        Math.abs(result - testCase.expectedValue) < 0.000000001,
+        `Expressão ${testCase.name}: esperado ${testCase.expectedValue}, recebido ${result}`,
+      );
+    } else {
+      assert.equal(result, testCase.expectedValue, `Expressão falhou: ${testCase.name}`);
+    }
+  }
+});
+
+test("template aplica expressões matemáticas usando fixture complexa", () => {
+  const { byName, expected } = loadComplexExpressionFixture();
+
+  for (const testCase of expected.templateCases) {
+    const cliente = byName.get(testCase.rowName);
+    assert.ok(cliente, `Cliente não encontrado na fixture: ${testCase.rowName}`);
+    assert.equal(
+      applyTemplate(testCase.template, cliente),
+      testCase.expectedText,
+      `Template falhou: ${testCase.name}`,
+    );
+  }
+});
+
+test("parser rejeita filtros inválidos usando fixture complexa", () => {
+  const { clientes, expected } = loadComplexExpressionFixture();
+
+  for (const testCase of expected.invalidFilterCases) {
+    assert.throws(
+      () => {
+        const ast = parseExpression(testCase.expression);
+        applyListFilter(clientes, {
+          ast,
+          expression: testCase.expression,
+        });
+      },
+      new RegExp(testCase.expectedErrorPattern),
+      `Filtro inválido deveria falhar: ${testCase.name}`,
+    );
+  }
 });
 
 test("usa modelo selecionado e resolve anexos relativos à pasta do modelo", async () => {

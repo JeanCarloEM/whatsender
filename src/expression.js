@@ -495,7 +495,11 @@ function evaluateFunction(node, context) {
       return { value: parseSmartNumber(value).ok };
     case "isfloat": {
       const parsed = parseSmartNumber(value);
-      return { value: parsed.ok && !Number.isInteger(parsed.value) };
+      return {
+        value:
+          parsed.ok &&
+          (!Number.isInteger(parsed.value) || looksLikeFloatText(value)),
+      };
     }
     case "isint": {
       const parsed = parseSmartNumber(value);
@@ -533,6 +537,13 @@ function readFunctionValue(node, context) {
 }
 
 function compareValues(left, right, operator) {
+  if (
+    (typeof left === "number" && !Number.isFinite(left)) ||
+    (typeof right === "number" && !Number.isFinite(right))
+  ) {
+    return false;
+  }
+
   const leftBoolean = parseBooleanValue(left);
   const rightBoolean = parseBooleanValue(right);
 
@@ -586,7 +597,7 @@ function calculateValues(left, right, operator) {
       return leftNumber * rightNumber;
     case "/":
       if (rightNumber === 0) {
-        throw new ExpressionError("Divisão por zero na expressão.");
+        return Number.NaN;
       }
 
       return leftNumber / rightNumber;
@@ -616,7 +627,7 @@ function toMathNumber(value) {
     return numberValue.value;
   }
 
-  throw new ExpressionError(`Valor não numérico em operação matemática: ${value}`);
+  return Number.NaN;
 }
 
 function toBoolean(value) {
@@ -684,6 +695,32 @@ function parseSmartNumber(value) {
   return Number.isFinite(number)
     ? { ok: true, raw, value: number }
     : { ok: false, raw, value: undefined };
+}
+
+function looksLikeFloatText(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const raw = value.trim().replace(/^[+-]/u, "");
+
+  if (raw.includes(",")) {
+    const lastComma = raw.lastIndexOf(",");
+    return /\d/u.test(raw.slice(lastComma + 1));
+  }
+
+  const dotCount = (raw.match(/\./gu) || []).length;
+
+  if (dotCount === 1) {
+    return true;
+  }
+
+  if (dotCount > 1) {
+    const last = raw.split(".").pop();
+    return last.length !== 3;
+  }
+
+  return false;
 }
 
 function normalizeNumericText(value) {

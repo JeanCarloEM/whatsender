@@ -1,0 +1,126 @@
+{
+  "filterCases": [
+    {
+      "name": "numeric math with boolean validity",
+      "expression": "(valor + bonus) >= 1300 && $.istrue(vigente)",
+      "expectedNames": ["Ana Alpha", "Carla Gama"]
+    },
+    {
+      "name": "detect non numeric fields",
+      "expression": "!$.isnum(idade) || !$.isnum(valor)",
+      "expectedNames": ["Fabio Zeta"]
+    },
+    {
+      "name": "float values and integer installments",
+      "expression": "$.isfloat(valor) && $.isint(parcelas)",
+      "expectedNames": ["Ana Alpha", "Carla Gama", "Diego Delta", "Eva Epsilon"]
+    },
+    {
+      "name": "empty fields with trim",
+      "expression": "$.vazio(conta) || $.vazio(observacao)",
+      "expectedNames": ["Bruno Beta"]
+    },
+    {
+      "name": "xor over boolean equivalents with score threshold",
+      "expression": "($.istrue(aprovado) ^^ $.istrue(bloqueado)) && score>=70",
+      "expectedNames": ["Ana Alpha", "Carla Gama", "Eva Epsilon"]
+    },
+    {
+      "name": "nested arithmetic precedence",
+      "expression": "((valor/parcelas)+taxa*2)>=420",
+      "expectedNames": ["Ana Alpha", "Carla Gama", "Eva Epsilon"]
+    },
+    {
+      "name": "case sensitive literal alternatives",
+      "expression": "categoria=VIP || categoria=vip",
+      "expectedNames": ["Ana Alpha", "Carla Gama"]
+    },
+    {
+      "name": "quoted column in compound filter",
+      "expression": "\"Status\"=ativo && (score>=90 || categoria=VIP)",
+      "expectedNames": ["Ana Alpha"]
+    },
+    {
+      "name": "negative number comparison and explicit column",
+      "expression": "saldo<0 || $tentativas>=3",
+      "expectedNames": ["Bruno Beta", "Diego Delta"]
+    },
+    {
+      "name": "boolean group coerced to number inside math",
+      "expression": "($.istrue(aprovado) * 100 + score) >= 170",
+      "expectedNames": ["Ana Alpha", "Carla Gama", "Eva Epsilon"]
+    },
+    {
+      "name": "complex nested xor and negation",
+      "expression": "((($.isfloat(valor) && score>80) || ($.isint(valor) && saldo<0)) && !($.istrue(bloqueado) && limite<600)) ^^ (categoria=teste)",
+      "expectedNames": ["Ana Alpha", "Bruno Beta", "Carla Gama", "Eva Epsilon"]
+    },
+    {
+      "name": "invalid arithmetic does not match rows",
+      "expression": "(valor/0)>1 || (valor+taxa)>999999",
+      "expectedNames": []
+    },
+    {
+      "name": "accent insensitive boolean false equivalents",
+      "expression": "!$.istrue(vigente) && ($.isbool(vigente) && $.isbool(bloqueado))",
+      "expectedNames": ["Bruno Beta", "Diego Delta", "Fabio Zeta"]
+    }
+  ],
+  "evaluationCases": [
+    {
+      "name": "decimal comma arithmetic",
+      "rowName": "Ana Alpha",
+      "expression": "(valor+bonus)/parcelas",
+      "expectedValue": 444.8333333333333
+    },
+    {
+      "name": "boolean to number arithmetic",
+      "rowName": "Carla Gama",
+      "expression": "$.istrue(aprovado)*10 + $.istrue(bloqueado)",
+      "expectedValue": 10
+    },
+    {
+      "name": "unary negative and grouped comparison",
+      "rowName": "Bruno Beta",
+      "expression": "(-saldo) >= 50 && !(score>70)",
+      "expectedValue": true
+    },
+    {
+      "name": "division and decimal dot",
+      "rowName": "Eva Epsilon",
+      "expression": "(valor/parcelas)+taxa",
+      "expectedValue": 500.005
+    }
+  ],
+  "templateCases": [
+    {
+      "name": "math expression in template",
+      "rowName": "Ana Alpha",
+      "template": "Olá ${nome}. Total: ${(valor+bonus)/parcelas}.",
+      "expectedText": "Olá Ana Alpha. Total: 444.8333333333."
+    },
+    {
+      "name": "case insensitive columns and arithmetic",
+      "rowName": "Eva Epsilon",
+      "template": "Saldo ${NOME}: ${(VALOR+BONUS)-SALDO}.",
+      "expectedText": "Saldo Eva Epsilon: 949.99."
+    }
+  ],
+  "invalidFilterCases": [
+    {
+      "name": "missing quoted column",
+      "expression": "\"situacao\"=ativo && valor>0",
+      "expectedErrorPattern": "coluna não encontrada: situacao"
+    },
+    {
+      "name": "unclosed group",
+      "expression": "((valor>0) && status=ativo",
+      "expectedErrorPattern": "Esperado"
+    },
+    {
+      "name": "unknown function",
+      "expression": "$.desconhecida(valor)",
+      "expectedErrorPattern": "Função lógica desconhecida"
+    }
+  ]
+}

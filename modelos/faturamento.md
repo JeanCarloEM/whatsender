@@ -4,7 +4,7 @@
 
 Como fazer?  
 ✅ Opção 1: Documento oficial do contador  
-✅ Opção 2: Relatório interno  
+✅ Opção 2: Relatório interno nosso
 
 ⚠️ Atenção: Um sócio/dirigente *PRECISA* ASSINAR, independente da opção.  
 

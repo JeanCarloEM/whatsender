@@ -34,13 +34,20 @@
  *
  *      ./listas/NOME.csv
  *
- *   Se o parâmetro de lista contiver "=" ou "!=", ele deve ser interpretado
- *   como filtro aplicado ao ./clientes.csv padrão, no formato:
+ *   Se o parâmetro de lista contiver operadores de comparação ou funções
+ *   lógicas, ele deve ser interpretado como filtro aplicado ao ./clientes.csv
+ *   padrão. Exemplos:
  *
  *      coluna=valor
  *      coluna!=valor
+ *      valor>=10,5 && status=ativo
+ *      ($.isnum(valor) && valor>0) || $.istrue(vigente)
  *
  *   O nome da coluna do filtro deve ser insensível a maiúsculas e minúsculas.
+ *   O filtro deve aceitar =, !=, <, <=, >, >=, &&, ||, ^^, !, parênteses,
+ *   operações +, -, * e /, valores numéricos com "." ou "," decimal e funções
+ *   $.vazio(), $.isnum(), $.isfloat(), $.isint(), $.isbool(), $.istrue() e
+ *   $.istring().
  *
  *   O CSV deve conter obrigatoriamente apenas as colunas:
  *
@@ -78,6 +85,11 @@
  *
  *   O nome da variável dentro de ${} deve ser insensível a maiúsculas e
  *   minúsculas.
+ *
+ *   Dentro de ${...}, também devem ser aceitas expressões matemáticas simples
+ *   com colunas do CSV, por exemplo:
+ *
+ *      ${(valor+taxa)*2}
  *
  *   O marcador $diatarde$ deve ser substituído no momento do envio por:
  *

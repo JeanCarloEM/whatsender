@@ -15,7 +15,6 @@ const {
   buildPuppeteerConfig,
   createStatusReporter,
   evaluateExpression,
-  expressionResultToBoolean,
   formatBrowserStartupError,
   formatNameForMessage,
   getBrowserExecutableNames,
@@ -40,6 +39,7 @@ const {
   processCampaign,
   resetSentLog,
   sendRenderedTemplate,
+  toBoolean,
   sanitizePhone,
   validateRuntimeFiles,
 } = require("../main");
@@ -393,6 +393,21 @@ test("filtra clientes com operadores lógicos, comparação numérica e funçõe
   assert.deepEqual(loadClientes(selected).map((cliente) => cliente.nome), ["Maria", "Ana"]);
 });
 
+test("valida coluna entre aspas em filtro composto", () => {
+  const { paths } = createFixture({
+    csv: "nome,telefone,status,valor\nMaria,19998240000,ativo,10\nJoão,19998240001,inativo,20\n",
+  });
+  const selected = resolveExecutionPaths(paths, {
+    listArg: '"STATUS"="ativo" && valor>=10',
+  });
+  const invalid = resolveExecutionPaths(paths, {
+    listArg: '"SITUACAO"="ativo" && valor>=10',
+  });
+
+  assert.deepEqual(loadClientes(selected).map((cliente) => cliente.nome), ["Maria"]);
+  assert.throws(() => loadClientes(invalid), /coluna não encontrada: SITUACAO/);
+});
+
 test("suporta XOR, negação e coluna explícita no filtro", () => {
   const clientes = [
     { nome: "Maria", valor: "3", status: "ativo" },
@@ -400,8 +415,8 @@ test("suporta XOR, negação e coluna explícita no filtro", () => {
     { nome: "Ana", valor: "8", status: "inativo" },
   ];
   const filter = {
-    ast: parseExpression("($.istrue(status) ^^ ($valor>=5)) && !(3>$valor)"),
-    expression: "($.istrue(status) ^^ ($valor>=5)) && !(3>$valor)",
+    ast: parseExpression("($.istrue(status) ^^ ($valor>=5)) && !(3>=$valor)"),
+    expression: "($.istrue(status) ^^ ($valor>=5)) && !(3>=$valor)",
   };
 
   assert.deepEqual(applyListFilter(clientes, filter), [clientes[2]]);
@@ -415,11 +430,11 @@ test("avalia funções de tipo e conversão booleana/númerica", () => {
     valor: "1.234,50",
   };
 
-  assert.equal(expressionResultToBoolean(evaluateExpression("$.isbool(ativo)", data)), true);
-  assert.equal(expressionResultToBoolean(evaluateExpression("$.istrue(ativo)", data)), true);
-  assert.equal(expressionResultToBoolean(evaluateExpression("$.isint(inteiro)", data)), true);
-  assert.equal(expressionResultToBoolean(evaluateExpression("$.isfloat(valor)", data)), true);
-  assert.equal(expressionResultToBoolean(evaluateExpression("$.istring(texto)", data)), true);
+  assert.equal(toBoolean(evaluateExpression("$.isbool(ativo)", data).value), true);
+  assert.equal(toBoolean(evaluateExpression("$.istrue(ativo)", data).value), true);
+  assert.equal(toBoolean(evaluateExpression("$.isint(inteiro)", data).value), true);
+  assert.equal(toBoolean(evaluateExpression("$.isfloat(valor)", data).value), true);
+  assert.equal(toBoolean(evaluateExpression("$.istring(texto)", data).value), true);
 });
 
 test("permite matemática em filtros e no template", () => {

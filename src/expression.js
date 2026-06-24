@@ -107,12 +107,6 @@ function tokenizeExpression(source) {
       continue;
     }
 
-    if ("(),".includes(char)) {
-      tokens.push({ type: char, value: char });
-      index += 1;
-      continue;
-    }
-
     if (char === "'" || char === '"') {
       const result = readQuotedString(input, index);
       tokens.push({ type: "string", value: result.value });
@@ -124,6 +118,12 @@ function tokenizeExpression(source) {
       const result = readNumberToken(input, index);
       tokens.push({ type: "number", value: result.value });
       index = result.nextIndex;
+      continue;
+    }
+
+    if ("(),".includes(char)) {
+      tokens.push({ type: char, value: char });
+      index += 1;
       continue;
     }
 
@@ -768,6 +768,14 @@ function collectFields(node, fields, role) {
   if (node.type === "Identifier") {
     if (role !== "literal") {
       fields.add(node.name);
+    }
+
+    return;
+  }
+
+  if (node.type === "StringLiteral") {
+    if (role === "field") {
+      fields.add(node.value);
     }
 
     return;

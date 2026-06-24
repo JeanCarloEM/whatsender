@@ -18,8 +18,10 @@ O projeto segue um RCF local com estas regras principais:
 - usa `clientes.csv` e `texto.md`, ou arquivos em `listas/` e `modelos/`, como entradas da campanha;
 - valida CSV, template, logs, anexos locais, sessão e navegador antes de enviar;
 - substitui variáveis `${coluna}` a partir das colunas do CSV sem diferenciar maiúsculas e minúsculas;
+- permite expressões matemáticas simples dentro de `${...}`;
 - exige apenas `nome` e `telefone`; outras colunas são opcionais;
 - formata `${nome}` com capitalização e no máximo duas palavras;
+- permite filtros de lista com comparadores, operadores lógicos, funções e matemática;
 - substitui `$diatarde$` por `bom dia` ou `boa tarde` conforme o horário do envio;
 - interpreta `![](CAMINHO_OU_URL)` como anexo local ou remoto;
 - baixa anexos remotos uma única vez para cache temporário;
@@ -110,6 +112,15 @@ Relativo à sua conta ${conta}, podemos falar agora?
 O nome da variável dentro de `${}` é insensível a maiúsculas e minúsculas. Assim, `${nome}`, `${NOME}` e `${NoMe}` usam a mesma coluna `nome`.
 
 Se uma variável não existir no CSV, ela será substituída por vazio e registrada em `logs/avisos.csv`.
+
+Também é possível usar conta simples dentro de `${...}`. As colunas são resolvidas sem diferenciar maiúsculas e minúsculas:
+
+```markdown
+Valor atualizado: ${(valor+taxa)*2}
+Saldo estimado: ${(credito-debito)/parcelas}
+```
+
+As operações aceitas são `+`, `-`, `*`, `/` e parênteses. Números podem usar `.` ou `,` como separador decimal.
 
 O marcador `$diatarde$` é substituído no momento do envio:
 
@@ -221,18 +232,52 @@ Também é possível combinar modelo e lista:
 node main.js faturamento base_exemplo
 ```
 
-Se o valor da lista contiver `=` ou `!=`, ele será tratado como filtro sobre o `clientes.csv` padrão, não como arquivo:
+Se o valor da lista contiver um filtro, ele será aplicado sobre o `clientes.csv` padrão, não tratado como arquivo:
 
 ```powershell
 node main.js --lista "status=ativo"
 node main.js faturamento "status!=inativo"
+node main.js --lista "valor>=10,5 && status=ativo"
+node main.js --lista "($.isnum(valor) && valor>0) || $.istrue(vigente)"
 ```
 
-O nome da coluna à esquerda do filtro é insensível a maiúsculas e minúsculas. O valor à direita é comparado após remover espaços externos. Aspas ao redor do filtro inteiro ou das partes são aceitas, por exemplo:
+O nome da coluna é insensível a maiúsculas e minúsculas. O valor comparado é tratado automaticamente como texto, número ou booleano quando possível. Aspas ao redor do filtro inteiro ou das partes são aceitas, por exemplo:
 
 ```powershell
 node main.js --lista '"STATUS"="ativo"'
 ```
+
+Comparadores aceitos:
+
+```text
+=  !=  <  <=  >  >=
+```
+
+Operadores lógicos aceitos:
+
+```text
+&&  ||  ^^  !
+```
+
+Também são aceitos parênteses e operações matemáticas simples:
+
+```powershell
+node main.js --lista "(valor+taxa*2)>=100 && !(status=cancelado)"
+```
+
+Funções lógicas disponíveis:
+
+```text
+$.vazio(coluna)
+$.isnum(coluna)
+$.isfloat(coluna)
+$.isint(coluna)
+$.isbool(coluna)
+$.istrue(coluna)
+$.istring(coluna)
+```
+
+Valores booleanos são reconhecidos sem diferenciar maiúsculas, minúsculas ou acentos quando aplicável. Exemplos aceitos incluem `sim`, `não`, `true`, `false`, `1`, `0`, `ativo`, `inativo`, `habilitado`, `desabilitado`, `aprovado`, `reprovado`, `vigente`, `cancelado`, `suspenso`, `inapto`, `vencido`, `valido`, `válido` e `inválido`.
 
 ### `.env` opcional
 
@@ -353,6 +398,7 @@ Quando um registro é pulado, o console mostra o motivo. O caso mais comum é o 
 | `node main.js --lista base_exemplo` | Usa `listas/base_exemplo.csv` no lugar de `clientes.csv`. |
 | `node main.js faturamento base_exemplo` | Usa modelo e lista nomeados. |
 | `node main.js --lista "status=ativo"` | Usa `clientes.csv` filtrando a coluna `status`. |
+| `node main.js --lista "valor>=10 && status=ativo"` | Usa filtro composto sobre `clientes.csv`. |
 | `npm run check` | Valida arquivos e configuração sem enviar. |
 | `node main.js --check faturamento` | Valida `modelos/faturamento.md` sem enviar. |
 | `npm test` | Roda a suíte automatizada. |

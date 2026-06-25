@@ -5,7 +5,14 @@ const os = require("os");
 const path = require("path");
 
 const { PATHS, ROOT_DIR } = require("./config");
-const { AUTHOR, DISCLAIMER, LICENSE_LOCAL_PATH, LICENSE_NAME, LICENSE_URL } = require("./notice");
+const {
+  AUTHOR,
+  DISCLAIMER,
+  LICENSE_LOCAL_PATH,
+  LICENSE_NAME,
+  LICENSE_URL,
+  REPOSITORY_URL,
+} = require("./notice");
 const { loadCsv } = require("./data");
 const { initLogFiles, resetSentLog } = require("./logs");
 const { parseExpression } = require("./expression");
@@ -883,6 +890,32 @@ function renderGuiHtml() {
       color: var(--muted);
     }
 
+    details.hint {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    details.hint summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .emoji-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .emoji-list span {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #fff;
+      white-space: nowrap;
+    }
+
     .split {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -926,6 +959,21 @@ function renderGuiHtml() {
 
     button:hover { background: var(--accent-strong); }
     button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+    .icon-button {
+      min-width: 44px;
+      padding: 0 12px;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .danger-button {
+      background: var(--danger);
+    }
+
+    .danger-button:hover {
+      background: #912018;
+    }
 
     .actions {
       display: flex;
@@ -1016,9 +1064,9 @@ function renderGuiHtml() {
               <label for="sessionSelect">WhatsApp</label>
               <select id="sessionSelect"></select>
             </div>
-            <button id="newSessionButton" type="button">Criar</button>
-            <button id="renameSessionButton" type="button">Renomear</button>
-            <button id="removeSessionButton" type="button">Remover</button>
+            <button id="newSessionButton" class="icon-button" type="button" title="Criar sessão" aria-label="Criar sessão">+</button>
+            <button id="renameSessionButton" class="icon-button" type="button" title="Renomear sessão" aria-label="Renomear sessão">✎</button>
+            <button id="removeSessionButton" class="icon-button danger-button" type="button" title="Remover sessão" aria-label="Remover sessão">−</button>
           </div>
           <div class="hint">Ao alternar, criar ou remover a sessão ativa, o WhatsApp é reiniciado automaticamente. Se a última sessão for removida, a próxima abertura volta ao QR Code.</div>
         </section>
@@ -1026,6 +1074,7 @@ function renderGuiHtml() {
         <section>
           <h2>Licença</h2>
           <p><strong>Autor:</strong> ${AUTHOR}</p>
+          <p><strong>Repositório:</strong> <a href="${REPOSITORY_URL}" target="_blank" rel="noreferrer">${REPOSITORY_URL}</a></p>
           <p><strong>Licença:</strong> <a href="/license" target="_blank" rel="noreferrer">${LICENSE_NAME}</a> <span class="hint">(${LICENSE_LOCAL_PATH}; <a href="${LICENSE_URL}" target="_blank" rel="noreferrer">${LICENSE_URL}</a>)</span></p>
           <div class="hint">${DISCLAIMER}</div>
         </section>
@@ -1034,7 +1083,28 @@ function renderGuiHtml() {
           <h2>Modelo de mensagem</h2>
           <label for="templateText">Texto do modelo</label>
           <textarea id="templateText" spellcheck="false" placeholder="$diatarde$, \${nome}.&#10;&#10;Seu valor atualizado é \${(valor+taxa)}."></textarea>
-          <div class="hint">\${campo} aceita colunas e expressões, como \${(valor+taxa)*2}; use +, -, *, / e parênteses.</div>
+          <div class="hint">\${campo} aceita colunas/expressões. Pode usar emoji, *negrito*, _itálico_, ~taxado~ com marcador colado ao texto, listas 1., 2., - e *.</div>
+          <details class="hint">
+            <summary>Emojis profissionais</summary>
+            <div class="emoji-list">
+              <span>⚠️ alerta</span>
+              <span>✅ check</span>
+              <span>🆗 OK</span>
+              <span>❌ erro</span>
+              <span>📋 lista</span>
+              <span>👍 joinha</span>
+              <span>☑️ ticado</span>
+              <span>ℹ️ informação</span>
+              <span>📌 destaque</span>
+              <span>⏰ prazo</span>
+              <span>📎 anexo</span>
+              <span>💬 resposta</span>
+              <span>🙂 alegria</span>
+              <span>😔 tristeza</span>
+              <span>😢 choro</span>
+              <span>🙏 agradecimento</span>
+            </div>
+          </details>
           <div style="height:14px"></div>
           <label for="templateFile">Ou arquivo .md</label>
           <input id="templateFile" type="file" accept=".md,text/markdown,text/plain">

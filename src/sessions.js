@@ -74,7 +74,7 @@ function discoverSessionIds(authDir = PATHS.auth) {
 }
 
 function listSessions(paths = PATHS) {
-  const store = loadSessionStore();
+  const store = loadSessionStore(paths.sessionsFile);
   const ids = new Set([
     ...Object.keys(store.sessions || {}),
     ...discoverSessionIds(paths.auth),
@@ -85,6 +85,18 @@ function listSessions(paths = PATHS) {
   }
 
   return [...ids].sort(sortDefaultFirst).map((id) => normalizeSessionRecord(id, store.sessions[id]));
+}
+
+function listPersistedSessions(paths = PATHS) {
+  const store = loadSessionStore(paths.sessionsFile);
+  const ids = new Set([
+    ...Object.keys(store.sessions || {}),
+    ...discoverSessionIds(paths.auth),
+  ]);
+
+  return [...ids].sort(sortDefaultFirst).map((id) =>
+    normalizeSessionRecord(id, store.sessions[id]),
+  );
 }
 
 function sortDefaultFirst(a, b) {
@@ -166,11 +178,11 @@ async function selectSessionForExecution(options = {}, paths = PATHS) {
   return promptSessionSelection(sessions);
 }
 
-function createSession(name) {
-  const store = loadSessionStore();
+function createSession(name, paths = PATHS) {
+  const store = loadSessionStore(paths.sessionsFile);
   const existingIds = new Set([
     ...Object.keys(store.sessions || {}),
-    ...discoverSessionIds(PATHS.auth),
+    ...discoverSessionIds(paths.auth),
   ]);
   const sessionId = uniqueSessionId(normalizeSessionId(name), existingIds);
   const now = new Date().toISOString();
@@ -181,13 +193,13 @@ function createSession(name) {
   });
 
   store.sessions[session.id] = session;
-  saveSessionStore(store);
+  saveSessionStore(store, paths.sessionsFile);
   return session;
 }
 
-function renameSession(identifier, newName) {
-  const store = loadSessionStore();
-  const sessions = listSessions();
+function renameSession(identifier, newName, paths = PATHS) {
+  const store = loadSessionStore(paths.sessionsFile);
+  const sessions = listSessions(paths);
   const session = resolveSessionByIdentifier(identifier, sessions);
   const current = normalizeSessionRecord(session.id, store.sessions[session.id]);
 
@@ -196,8 +208,39 @@ function renameSession(identifier, newName) {
     name: String(newName || "").trim() || current.name,
     updatedAt: new Date().toISOString(),
   };
-  saveSessionStore(store);
+  saveSessionStore(store, paths.sessionsFile);
   return normalizeSessionRecord(session.id, store.sessions[session.id]);
+}
+
+function removeSession(identifier, paths = PATHS) {
+  const store = loadSessionStore(paths.sessionsFile);
+  const session = resolveSessionByIdentifier(identifier, listSessions(paths));
+  const sessionPath = getSessionAuthPath(paths, session.id);
+
+  if (fs.existsSync(sessionPath)) {
+    fs.rmSync(sessionPath, { force: true, recursive: true });
+  }
+
+  delete store.sessions[session.id];
+  saveSessionStore(store, paths.sessionsFile);
+
+  return {
+    remainingPersisted: listPersistedSessions(paths),
+    remainingSessions: listSessions(paths),
+    removed: session,
+  };
+}
+
+function getSessionAuthPath(paths = PATHS, sessionId = DEFAULT_SESSION_ID) {
+  const authRoot = path.resolve(paths.auth);
+  const target = path.resolve(authRoot, sessionDirectoryName(sessionId));
+  const insideAuthRoot = target === authRoot || target.startsWith(`${authRoot}${path.sep}`);
+
+  if (!insideAuthRoot) {
+    throw new Error(`Caminho de sessão inválido: ${target}`);
+  }
+
+  return target;
 }
 
 function uniqueSessionId(baseId, sessions) {
@@ -261,12 +304,12 @@ function applySessionToPaths(paths = PATHS, session) {
   };
 }
 
-function updateSessionPhone(session, phone) {
+function updateSessionPhone(session, phone, paths = PATHS) {
   if (!session) {
     return;
   }
 
-  const store = loadSessionStore();
+  const store = loadSessionStore(paths.sessionsFile);
   const current = normalizeSessionRecord(session.id, store.sessions[session.id]);
   const now = new Date().toISOString();
 
@@ -275,7 +318,7 @@ function updateSessionPhone(session, phone) {
     phone: sanitizePhone(phone || current.phone || ""),
     updatedAt: now,
   };
-  saveSessionStore(store);
+  saveSessionStore(store, paths.sessionsFile);
 }
 
 module.exports = {
@@ -283,9 +326,12 @@ module.exports = {
   applySessionToPaths,
   createSession,
   formatSessionDisplayName,
+  getSessionAuthPath,
+  listPersistedSessions,
   listSessions,
   normalizeSessionId,
   renameSession,
+  removeSession,
   resolveSessionByIdentifier,
   selectSessionForExecution,
   sessionDirectoryName,

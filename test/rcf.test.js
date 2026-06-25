@@ -48,6 +48,8 @@ const {
   validateGuiPayload,
   validateRuntimeFiles,
   resolveSessionByIdentifier,
+  removeSession,
+  listPersistedSessions,
 } = require("../main");
 
 const COMPLEX_CLIENTS_CSV = path.join(__dirname, "clientes-complexos.csv");
@@ -67,6 +69,7 @@ function createFixture(files = {}) {
     skipped: path.join(root, "logs", "pulos.csv"),
     warnings: path.join(root, "logs", "avisos.csv"),
     auth: path.join(root, ".wwebjs_auth"),
+    sessionsFile: path.join(root, ".wwebjs_sessions.json"),
     mediaCacheDir: path.join(root, "media-cache"),
   };
 
@@ -581,6 +584,46 @@ test("resolve sessão por nome ou últimos dígitos e rejeita ambiguidade", () =
   assert.equal(resolveSessionByIdentifier("financeiro", sessions).id, "financeiro");
   assert.equal(resolveSessionByIdentifier("5678", sessions).id, "financeiro");
   assert.throws(() => resolveSessionByIdentifier("1234", sessions), /Sessão ambígua/);
+});
+
+test("CLI aceita remover sessão por parâmetro", () => {
+  assert.equal(
+    parseExecutionOptions(["--remove-session", "Comercial"]).removeSession,
+    "Comercial",
+  );
+  assert.equal(
+    parseExecutionOptions(["--remover-sessao=1234"]).removeSession,
+    "1234",
+  );
+});
+
+test("remove sessão apaga auth local e volta ao estado inicial quando não resta persistência", () => {
+  const { paths } = createFixture();
+  const sessionDir = path.join(paths.auth, "session-comercial");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionDir, "marker.txt"), "ok", "utf8");
+  fs.writeFileSync(
+    paths.sessionsFile,
+    JSON.stringify({
+      sessions: {
+        comercial: {
+          id: "comercial",
+          name: "Comercial",
+          phone: "551199991234",
+        },
+      },
+      version: 1,
+    }),
+    "utf8",
+  );
+
+  const result = removeSession("Comercial", paths);
+
+  assert.equal(result.removed.id, "comercial");
+  assert.equal(fs.existsSync(sessionDir), false);
+  assert.deepEqual(listPersistedSessions(paths), []);
+  assert.equal(result.remainingSessions.length, 1);
+  assert.equal(result.remainingSessions[0].id, "default");
 });
 
 test("parser avalia filtros complexos contra fixture versionada", () => {

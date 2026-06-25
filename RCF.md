@@ -254,7 +254,7 @@ Quando houver apenas uma sessão, ela deve ser selecionada automaticamente. Quan
 
 Sessões nomeadas devem usar logs separados em `./logs/sessions/NOME_DA_SESSAO/`. A sessão padrão preserva os logs legados em `./logs/`.
 
-A GUI deve permitir criar, renomear e alternar sessões. Como a sessão do WhatsApp é definida na inicialização do `LocalAuth`, alternar ou criar sessão pela GUI pode reiniciar automaticamente o processo, fechar o navegador controlado atual e reabrir a interface na sessão escolhida.
+A GUI deve permitir criar, renomear, alternar e remover sessões. Como a sessão do WhatsApp é definida na inicialização do `LocalAuth`, alternar, criar ou remover a sessão ativa pela GUI pode reiniciar automaticamente o processo, fechar o navegador controlado atual e reabrir a interface na sessão escolhida. Se a última sessão persistida for removida, a próxima abertura deve retornar ao fluxo inicial de autenticação.
 
 ### RN025 - Múltiplos Modelos
 

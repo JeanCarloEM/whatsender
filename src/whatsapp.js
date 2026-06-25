@@ -26,7 +26,7 @@ function registerClientHandlers(client, paths = PATHS, options = {}) {
 
   client.on("ready", async () => {
     console.log("WhatsApp conectado.");
-    updateSessionPhone(paths.activeSession, readClientPhone(client));
+    updateSessionPhone(paths.activeSession, readClientPhone(client), paths);
 
     try {
       await processCampaign(client, paths, options);

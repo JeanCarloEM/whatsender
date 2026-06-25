@@ -12,6 +12,7 @@ const {
   applySessionToPaths,
   listSessions,
   renameSession,
+  removeSession,
   selectSessionForExecution,
 } = require("./sessions");
 const {
@@ -35,9 +36,29 @@ async function main() {
       const renamed = renameSession(
         options.renameSession.from,
         options.renameSession.to,
+        PATHS,
       );
       console.log(`Sessão renomeada: ${renamed.displayName}`);
       return;
+    }
+
+    if (options.removeSession) {
+      const result = removeSession(options.removeSession, PATHS);
+      console.log(`Sessão removida: ${result.removed.displayName}`);
+
+      if (!options.gui) {
+        if (result.remainingPersisted.length === 0) {
+          console.log("Nenhuma sessão persistida restante. A próxima execução iniciará como primeira autenticação.");
+        }
+        return;
+      }
+
+      if (result.remainingPersisted.length > 0) {
+        options.session = result.remainingPersisted[0].id;
+      } else {
+        delete options.session;
+        delete options.newSessionName;
+      }
     }
 
     const selectedSession =

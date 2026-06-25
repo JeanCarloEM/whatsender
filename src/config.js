@@ -47,6 +47,7 @@ const PATHS = Object.freeze({
   skipped: path.resolve(ROOT_DIR, "logs", "pulos.csv"),
   warnings: path.resolve(ROOT_DIR, "logs", "avisos.csv"),
   auth: path.resolve(ROOT_DIR, ".wwebjs_auth"),
+  sessionsFile: path.resolve(ROOT_DIR, ".wwebjs_sessions.json"),
   mediaCacheDir: path.resolve(os.tmpdir(), "whatsapp-rcf-media"),
 });
 

@@ -44,6 +44,7 @@ function parseExecutionOptions(argv = process.argv.slice(2)) {
     help: false,
     listArg: undefined,
     newSessionName: undefined,
+    removeSession: undefined,
     resetSent: false,
     renameSession: undefined,
     session: undefined,
@@ -106,6 +107,18 @@ function parseExecutionOptions(argv = process.argv.slice(2)) {
       const to = readOptionValue(argv, from.nextIndex);
       options.renameSession = { from: from.value, to: to.value };
       index = to.nextIndex;
+      continue;
+    }
+
+    if (arg.startsWith("--remove-session=") || arg.startsWith("--remover-sessao=")) {
+      options.removeSession = arg.slice(arg.indexOf("=") + 1);
+      continue;
+    }
+
+    if (["--remove-session", "--remover-sessao"].includes(arg)) {
+      const result = readOptionValue(argv, index);
+      options.removeSession = result.value;
+      index = result.nextIndex;
       continue;
     }
 
@@ -207,6 +220,8 @@ Opções:
   --new-session NOME  Cria uma nova sessão e força nova autenticação.
   --rename-session ANTIGO NOVO
                       Renomeia uma sessão salva e encerra.
+  --remove-session VALOR
+                      Remove uma sessão salva pelo nome, id ou últimos dígitos.
   --lista VALOR       Usa ./listas/VALOR.csv ou filtra clientes.csv se contiver = ou !=.
   --modelo VALOR      Usa ./modelos/VALOR.md.
   --reset-sent        Limpa logs/enviados.csv antes de iniciar.

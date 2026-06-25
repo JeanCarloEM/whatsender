@@ -15,6 +15,7 @@ const {
   createSession,
   listSessions,
   renameSession,
+  removeSession,
   updateSessionPhone,
 } = require("./sessions");
 const { readClientPhone } = require("./whatsapp");
@@ -61,7 +62,7 @@ function registerGuiClientHandlers(client, basePaths = PATHS, baseOptions = {}) 
   client.on("ready", () => {
     state.status = "conectado";
     state.whatsappReady = true;
-    updateSessionPhone(basePaths.activeSession, readClientPhone(client));
+    updateSessionPhone(basePaths.activeSession, readClientPhone(client), basePaths);
     state.sessions = listSessions(basePaths);
     state.activeSession =
       state.sessions.find((session) => {
@@ -214,7 +215,7 @@ async function routeGuiRequest(req, res, context) {
       return;
     }
 
-    const session = createSession(name);
+    const session = createSession(name, context.basePaths);
     context.state.sessions = listSessions(context.basePaths);
     sendJson(res, 201, {
       message: "Sessão criada. Alternando para autenticação.",
@@ -238,7 +239,7 @@ async function routeGuiRequest(req, res, context) {
       return;
     }
 
-    const session = renameSession(sessionId, name);
+    const session = renameSession(sessionId, name, context.basePaths);
     context.state.sessions = listSessions(context.basePaths);
 
     if (context.state.activeSession && context.state.activeSession.id === session.id) {
@@ -251,6 +252,51 @@ async function routeGuiRequest(req, res, context) {
       session,
       sessions: context.state.sessions,
     });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/sessions/remove") {
+    const payload = await readJsonBody(req);
+    const sessionId = String(payload.sessionId || "").trim();
+
+    if (!sessionId) {
+      sendJson(res, 400, {
+        error: "Informe a sessão que será removida.",
+        ok: false,
+      });
+      return;
+    }
+
+    if (context.state.busy) {
+      sendJson(res, 409, {
+        error: "Não é possível remover sessão durante um processamento.",
+        ok: false,
+      });
+      return;
+    }
+
+    const result = removeSession(sessionId, context.basePaths);
+    context.state.sessions = listSessions(context.basePaths);
+    const activeRemoved =
+      context.state.activeSession &&
+      context.state.activeSession.id === result.removed.id;
+
+    sendJson(res, 200, {
+      activeRemoved,
+      message: activeRemoved
+        ? "Sessão ativa removida. Reiniciando o WhatsApp."
+        : "Sessão removida.",
+      ok: true,
+      remainingPersisted: result.remainingPersisted,
+      removed: result.removed,
+      sessions: context.state.sessions,
+    });
+
+    if (activeRemoved) {
+      const nextSession = result.remainingPersisted[0];
+      scheduleGuiRestart(context, nextSession ? nextSession.id : "");
+    }
+
     return;
   }
 
@@ -535,7 +581,11 @@ function scheduleGuiRestart(context, sessionId) {
 }
 
 async function restartGuiProcess(context, sessionId) {
-  const args = [path.join(ROOT_DIR, "main.js"), "--gui", "--session", sessionId];
+  const args = [path.join(ROOT_DIR, "main.js"), "--gui"];
+
+  if (sessionId) {
+    args.push("--session", sessionId);
+  }
 
   try {
     if (context.client && typeof context.client.destroy === "function") {
@@ -848,7 +898,7 @@ function renderGuiHtml() {
 
     .session-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       gap: 10px;
       align-items: end;
     }
@@ -968,8 +1018,9 @@ function renderGuiHtml() {
             </div>
             <button id="newSessionButton" type="button">Criar</button>
             <button id="renameSessionButton" type="button">Renomear</button>
+            <button id="removeSessionButton" type="button">Remover</button>
           </div>
-          <div class="hint">Ao alternar ou criar sessão, o WhatsApp é reiniciado automaticamente para carregar o perfil escolhido.</div>
+          <div class="hint">Ao alternar, criar ou remover a sessão ativa, o WhatsApp é reiniciado automaticamente. Se a última sessão for removida, a próxima abertura volta ao QR Code.</div>
         </section>
 
         <section>
@@ -1038,6 +1089,7 @@ function renderGuiHtml() {
     const sessionSelect = document.getElementById("sessionSelect");
     const newSessionButton = document.getElementById("newSessionButton");
     const renameSessionButton = document.getElementById("renameSessionButton");
+    const removeSessionButton = document.getElementById("removeSessionButton");
     let activeSessionId = "";
     let lastSessionCount = 0;
     let pollTimer = null;
@@ -1146,6 +1198,7 @@ function renderGuiHtml() {
       sessionSelect.disabled = sessions.length <= 1 || Boolean(state.busy);
       newSessionButton.disabled = Boolean(state.busy);
       renameSessionButton.disabled = !active || Boolean(state.busy);
+      removeSessionButton.disabled = !active || Boolean(state.busy);
     }
 
     function statusLabel(status, ready) {
@@ -1243,6 +1296,28 @@ function renderGuiHtml() {
         });
         showMessage(data.message || "Sessão renomeada.", "ok");
         await refreshStatus();
+      } catch (err) {
+        showMessage(err.message, "error");
+      }
+    });
+
+    removeSessionButton.addEventListener("click", async () => {
+      if (!activeSessionId) return;
+      const currentText = sessionSelect.options[sessionSelect.selectedIndex]?.textContent || activeSessionId;
+      const confirmed = window.confirm(
+        "Remover a sessão " + currentText + "? A autenticação local dessa sessão será apagada."
+      );
+
+      if (!confirmed) return;
+
+      try {
+        const data = await postJson("/api/sessions/remove", {
+          sessionId: activeSessionId,
+        });
+        showMessage(data.message || "Sessão removida.", "ok");
+        if (!data.activeRemoved) {
+          await refreshStatus();
+        }
       } catch (err) {
         showMessage(err.message, "error");
       }

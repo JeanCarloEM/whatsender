@@ -1103,6 +1103,30 @@ function renderGuiHtml() {
               <span>😔 tristeza</span>
               <span>😢 choro</span>
               <span>🙏 agradecimento</span>
+              <span>🚀 lançamento</span>
+              <span>🔥 oferta</span>
+              <span>⭐ destaque</span>
+              <span>🎯 objetivo</span>
+              <span>💡 ideia</span>
+              <span>🎁 brinde</span>
+              <span>🏷️ promoção</span>
+              <span>💰 preço</span>
+              <span>💳 pagamento</span>
+              <span>🛒 compra</span>
+              <span>🛍️ pedido</span>
+              <span>📦 entrega</span>
+              <span>🚚 frete</span>
+              <span>📣 anúncio</span>
+              <span>📢 comunicado</span>
+              <span>📲 contato</span>
+              <span>🔔 lembrete</span>
+              <span>🔒 segurança</span>
+              <span>🎉 comemoração</span>
+              <span>💎 premium</span>
+              <span>🏆 conquista</span>
+              <span>📈 crescimento</span>
+              <span>🤝 parceria</span>
+              <span>📝 cadastro</span>
             </div>
           </details>
           <div style="height:14px"></div>

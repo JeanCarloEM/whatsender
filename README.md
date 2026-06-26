@@ -1,4 +1,4 @@
-# Disparador Local de Mensagens WhatsApp
+# WhatSender
 
 Aplicativo local em Node.js para enviar mensagens personalizadas pelo WhatsApp Web usando:
 

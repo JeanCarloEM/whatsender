@@ -156,6 +156,8 @@ GUI_PORT=3137
 WA_CLIENT_ID=campanha_teste
 ```
 
+Se `GUI_PORT` estiver ocupada, a interface tenta automaticamente portas próximas, como `3138` e `3139`, e informa a URL efetiva no console.
+
 ## Atualizacao
 
 Os inicializadores de atualizacao nao dependem de `git` nem de existir `.git` na pasta local. Eles consultam `https://github.com/JeanCarloEM/whatsender`, baixam a release mais recente quando houver release publicada e, se nao houver release, baixam a branch `main`.

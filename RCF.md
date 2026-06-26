@@ -240,6 +240,8 @@ A interface local deve ser iniciada no começo do fluxo para exibir status de au
 
 Quando possível, a GUI deve ser aberta como aba no mesmo navegador controlado pelo WhatsApp Web. Se o navegador controlado ainda não estiver disponível ou não permitir nova aba, a GUI pode ser aberta no navegador padrão, registrando esse fallback de forma clara.
 
+Se a porta local configurada para a GUI estiver ocupada, o servidor deve tentar automaticamente portas próximas antes de falhar, registrando a porta efetivamente usada.
+
 A GUI deve oferecer:
 
 - Modelo por textarea.

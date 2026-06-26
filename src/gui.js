@@ -29,6 +29,7 @@ const { readClientPhone } = require("./whatsapp");
 
 const GUI_HOST = "127.0.0.1";
 const GUI_PORT = Number.parseInt(process.env.GUI_PORT || "3137", 10);
+const GUI_PORT_ATTEMPTS = 20;
 const GUI_RUNTIME_DIR = path.join(ROOT_DIR, ".runtime", "gui");
 const MAX_JSON_BODY_BYTES = 15 * 1024 * 1024;
 
@@ -108,6 +109,10 @@ function registerGuiClientHandlers(client, basePaths = PATHS, baseOptions = {}) 
 
 function startGuiServer(client, basePaths = PATHS, baseOptions = {}) {
   const state = createGuiState(basePaths);
+  return listenGuiServer(client, basePaths, baseOptions, state, GUI_PORT, 0);
+}
+
+function createGuiHttpServer(client, basePaths, baseOptions, state) {
   let server;
 
   server = http.createServer((req, res) => {
@@ -125,10 +130,41 @@ function startGuiServer(client, basePaths = PATHS, baseOptions = {}) {
     });
   });
 
+  return server;
+}
+
+function listenGuiServer(client, basePaths, baseOptions, state, port, attempt) {
+  const server = createGuiHttpServer(client, basePaths, baseOptions, state);
+
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(GUI_PORT, GUI_HOST, () => {
-      server.off("error", reject);
+    server.once("error", (err) => {
+      if (err && err.code === "EADDRINUSE" && attempt < GUI_PORT_ATTEMPTS - 1) {
+        server.close(() => {
+          listenGuiServer(
+            client,
+            basePaths,
+            baseOptions,
+            state,
+            port + 1,
+            attempt + 1,
+          ).then(resolve, reject);
+        });
+        return;
+      }
+
+      reject(err);
+    });
+
+    server.listen(port, GUI_HOST, () => {
+      if (attempt > 0) {
+        const message = `Porta ${GUI_PORT} ocupada. Interface local aberta na porta ${server.address().port}.`;
+        console.log(message);
+        pushGuiLog(state, {
+          message,
+          type: "warning",
+        });
+      }
+
       resolve({
         server,
         state,
@@ -1396,10 +1432,15 @@ function renderGuiHtml() {
       const response = await fetch("/api/status", { cache: "no-store" });
       const data = await response.json();
       renderStatus(data.state);
-      if (!data.state.busy && pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
+    }
+
+    function startStatusPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(() => {
+        refreshStatus().catch((err) => {
+          showMessage("Não foi possível atualizar o status: " + err.message, "error");
+        });
+      }, 1200);
     }
 
     form.addEventListener("submit", async (event) => {
@@ -1416,7 +1457,7 @@ function renderGuiHtml() {
         await postJson("/api/run", payload);
         showMessage("Processamento iniciado.", "ok");
         await refreshStatus();
-        pollTimer = setInterval(refreshStatus, 1200);
+        startStatusPolling();
       } catch (err) {
         showMessage(err.message, "error");
         button.disabled = false;
@@ -1496,7 +1537,10 @@ function renderGuiHtml() {
       }
     });
 
-    refreshStatus();
+    refreshStatus().catch((err) => {
+      showMessage("Não foi possível carregar o status: " + err.message, "error");
+    });
+    startStatusPolling();
   </script>
 </body>
 </html>`;

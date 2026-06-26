@@ -415,7 +415,7 @@ async function sendOggVoiceMessage(client, chatId, media, part) {
 
 function createOggVoiceMedia(media) {
   return new MessageMedia(
-    "audio/ogg; codecs=opus",
+    "audio/ogg",
     media.data,
     media.filename || "audio.ogg",
     media.filesize,

@@ -1424,7 +1424,7 @@ test("envia OGG de áudio como mensagem de voz separada no ponto da notação", 
     sendAudioAsVoice: true,
     sendMediaAsDocument: false,
   });
-  assert.equal(calls[1].mimetype, "audio/ogg; codecs=opus");
+  assert.equal(calls[1].mimetype, "audio/ogg");
 });
 
 test("não usa legenda automática para OGG de áudio no início ou final", async () => {
@@ -1457,7 +1457,7 @@ test("não usa legenda automática para OGG de áudio no início ou final", asyn
     "audio.ogg",
   ]);
   assert.equal(calls[1].options.sendAudioAsVoice, true);
-  assert.equal(calls[1].mimetype, "audio/ogg; codecs=opus");
+  assert.equal(calls[1].mimetype, "audio/ogg");
   assert.equal(calls[1].options.caption, undefined);
 });
 

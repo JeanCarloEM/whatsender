@@ -131,6 +131,10 @@ Demonstracao de sintaxe textual:
 | `1. item` | lista enumerada |
 | `- item` | lista simples |
 
+Arquivos salvos no Windows, Linux ou macOS podem usar quebras diferentes. O sistema normaliza quebras para o formato compatível com WhatsApp Web e preserva recuos, espaços e tabulações intencionais.
+
+Antes do envio, o sistema alerta sobre possíveis erros de sintaxe no modelo, como `{nome}` sem `$`, `${...}` aberto sem fechamento ou expressão inválida. A GUI pede confirmação e a CLI pergunta `sim`/`não`; o padrão seguro é abortar.
+
 
 ## GUI
 

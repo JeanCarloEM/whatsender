@@ -15,9 +15,10 @@ const {
 function applyTemplate(template, data, options = {}) {
   const missingVariables = new Set();
   const dataMap = buildCaseInsensitiveDataMap(data);
+  const normalizedTemplate = normalizeTemplateText(template);
 
   return replaceDayPeriodMarkers(
-    replaceTemplateExpressions(String(template || ""), (expression) => {
+    replaceTemplateExpressions(normalizedTemplate, (expression) => {
       const key = normalizeNestedTemplateExpression(String(expression).trim());
       let ast;
 
@@ -105,6 +106,171 @@ function replaceTemplateExpressions(template, callback) {
   return result;
 }
 
+function inspectTemplateSyntax(template) {
+  const source = normalizeTemplateText(template);
+  const issues = [];
+  const reportedBareBracePositions = new Set();
+  let index = 0;
+
+  while (index < source.length) {
+    if (source[index] === "$" && source[index + 1] === "{") {
+      const result = readTemplateExpression(source, index);
+
+      if (!result.closed) {
+        issues.push(buildTemplateSyntaxIssue(
+          "UNCLOSED_TEMPLATE_EXPRESSION",
+          source,
+          index,
+          "Marcador ${...} aberto e não fechado.",
+        ));
+        index += 2;
+        continue;
+      }
+
+      const expression = result.expression.trim();
+
+      if (!expression) {
+        issues.push(buildTemplateSyntaxIssue(
+          "EMPTY_TEMPLATE_EXPRESSION",
+          source,
+          index,
+          "Marcador ${...} vazio.",
+        ));
+      } else {
+        try {
+          parseExpression(normalizeNestedTemplateExpression(expression));
+        } catch (err) {
+          issues.push(buildTemplateSyntaxIssue(
+            "INVALID_TEMPLATE_EXPRESSION",
+            source,
+            index,
+            `Expressão inválida em \${...}: ${err.message}`,
+          ));
+        }
+      }
+
+      index = result.nextIndex;
+      continue;
+    }
+
+    if (source[index] === "{") {
+      const closingIndex = findBareBraceClosingIndex(source, index);
+
+      if (closingIndex !== -1 && !reportedBareBracePositions.has(index)) {
+        reportedBareBracePositions.add(index);
+        issues.push(buildTemplateSyntaxIssue(
+          "BRACES_WITHOUT_DOLLAR",
+          source,
+          index,
+          "Trecho entre chaves sem '$' antes. Se for variável, use ${campo}.",
+        ));
+        index = closingIndex + 1;
+        continue;
+      }
+    }
+
+    if (source[index] === "}") {
+      issues.push(buildTemplateSyntaxIssue(
+        "UNMATCHED_CLOSING_BRACE",
+        source,
+        index,
+        "Chave '}' sem abertura correspondente.",
+      ));
+    }
+
+    index += 1;
+  }
+
+  return issues;
+}
+
+function readTemplateExpression(source, start) {
+  let index = start + 2;
+  let depth = 1;
+  let expression = "";
+
+  while (index < source.length) {
+    if (source[index] === "$" && source[index + 1] === "{") {
+      depth += 1;
+      expression += "${";
+      index += 2;
+      continue;
+    }
+
+    if (source[index] === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return {
+          closed: true,
+          expression,
+          nextIndex: index + 1,
+        };
+      }
+    }
+
+    expression += source[index];
+    index += 1;
+  }
+
+  return {
+    closed: false,
+    expression,
+    nextIndex: source.length,
+  };
+}
+
+function findBareBraceClosingIndex(source, start) {
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (char === "\n" || char === "{") {
+      return -1;
+    }
+
+    if (char === "}") {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function buildTemplateSyntaxIssue(code, source, index, message) {
+  const location = getLineColumn(source, index);
+  return {
+    code,
+    column: location.column,
+    line: location.line,
+    message,
+    snippet: getLineSnippet(source, index),
+  };
+}
+
+function getLineColumn(source, index) {
+  const before = source.slice(0, index);
+  const lines = before.split("\n");
+  return {
+    column: lines[lines.length - 1].length + 1,
+    line: lines.length,
+  };
+}
+
+function getLineSnippet(source, index) {
+  const start = source.lastIndexOf("\n", index - 1) + 1;
+  const endIndex = source.indexOf("\n", index);
+  const end = endIndex === -1 ? source.length : endIndex;
+  return source.slice(start, end).trim().slice(0, 160);
+}
+
+function normalizeTemplateText(text) {
+  return String(text || "")
+    .replace(/^\ufeff/u, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u2028\u2029]/gu, "\n");
+}
+
 function normalizeNestedTemplateExpression(expression) {
   return String(expression || "").replace(/\$\{([^{}]+)\}/g, "($1)");
 }
@@ -161,13 +327,14 @@ function shouldCapitalizeDayPeriodMarker(template, offset) {
 }
 
 function parseTemplateParts(renderedTemplate) {
+  const source = normalizeTemplateText(renderedTemplate);
   const parts = [];
   const mediaPattern = /!\[[^\]]*]\(([^)]+)\)/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = mediaPattern.exec(renderedTemplate)) !== null) {
-    const text = renderedTemplate.slice(lastIndex, match.index);
+  while ((match = mediaPattern.exec(source)) !== null) {
+    const text = source.slice(lastIndex, match.index);
 
     if (text.trim()) {
       parts.push({ type: "text", value: text });
@@ -182,7 +349,7 @@ function parseTemplateParts(renderedTemplate) {
     lastIndex = mediaPattern.lastIndex;
   }
 
-  const tail = renderedTemplate.slice(lastIndex);
+  const tail = source.slice(lastIndex);
 
   if (tail.trim()) {
     parts.push({ type: "text", value: tail });
@@ -200,7 +367,7 @@ function normalizeMediaSource(source) {
 }
 
 function splitTemplateVariants(template, minLength = TEMPLATE_VARIANT_MIN_LENGTH) {
-  const source = String(template || "");
+  const source = normalizeTemplateText(template);
   const parts = source.split(/^[ \t]*\^{3,}[ \t]*$/gmu);
 
   if (parts.length <= 1) {
@@ -215,6 +382,8 @@ function splitTemplateVariants(template, minLength = TEMPLATE_VARIANT_MIN_LENGTH
 
 module.exports = {
   applyTemplate,
+  inspectTemplateSyntax,
+  normalizeTemplateText,
   replaceTemplateExpressions,
   normalizeMediaSource,
   parseTemplateParts,

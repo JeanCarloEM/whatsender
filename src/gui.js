@@ -13,11 +13,11 @@ const {
   LICENSE_URL,
   REPOSITORY_URL,
 } = require("./notice");
-const { loadCsv } = require("./data");
+const { loadCsv, normalizeTextContent } = require("./data");
 const { initLogFiles, resetSentLog } = require("./logs");
-const { parseExpression } = require("./expression");
 const { processCampaign, validateRuntimeFiles } = require("./campaign");
 const { parseListFilter } = require("./data");
+const { inspectTemplateSyntax } = require("./template");
 const {
   createSession,
   listSessions,
@@ -359,6 +359,19 @@ async function routeGuiRequest(req, res, context) {
       return;
     }
 
+    if (
+      validation.syntaxIssues &&
+      validation.syntaxIssues.length > 0 &&
+      !payload.confirmTemplateSyntaxIssues
+    ) {
+      sendJson(res, 409, {
+        error: "Confirme os possíveis erros de sintaxe do modelo antes de enviar.",
+        ok: false,
+        syntaxIssues: validation.syntaxIssues,
+      });
+      return;
+    }
+
     if (context.state.busy) {
       sendJson(res, 409, {
         error: "Já existe um processamento em andamento.",
@@ -468,14 +481,18 @@ function materializeGuiExecutionPaths(payload, basePaths = PATHS) {
 
   if (templateText.trim() || templateFileContent.trim()) {
     const templatePath = path.join(GUI_RUNTIME_DIR, "template.md");
-    fs.writeFileSync(templatePath, templateText.trim() ? templateText : templateFileContent, "utf8");
+    fs.writeFileSync(
+      templatePath,
+      normalizeTextContent(templateText.trim() ? templateText : templateFileContent),
+      "utf8",
+    );
     paths.template = templatePath;
     paths.templateBaseDir = ROOT_DIR;
   }
 
   if (payload.csvFile && String(payload.csvFile.content || "").trim()) {
     const csvPath = path.join(GUI_RUNTIME_DIR, "clientes.csv");
-    fs.writeFileSync(csvPath, String(payload.csvFile.content || ""), "utf8");
+    fs.writeFileSync(csvPath, normalizeTextContent(payload.csvFile.content || ""), "utf8");
     paths.csv = csvPath;
   }
 
@@ -512,7 +529,7 @@ function validateGuiPayload(payload = {}, basePaths = PATHS) {
     (templateFile && String(templateFile.content || "").trim()) ||
     readOptionalFile(basePaths.template);
 
-  validateTemplateSyntax(templateCandidate, errors);
+  const syntaxIssues = inspectTemplateSyntax(templateCandidate);
 
   if (filter) {
     try {
@@ -530,7 +547,7 @@ function validateGuiPayload(payload = {}, basePaths = PATHS) {
     const tmpPath = path.join(GUI_RUNTIME_DIR, "prevalidate-clientes.csv");
     try {
       fs.mkdirSync(GUI_RUNTIME_DIR, { recursive: true });
-      fs.writeFileSync(tmpPath, String(csvFile.content || ""), "utf8");
+      fs.writeFileSync(tmpPath, normalizeTextContent(csvFile.content || ""), "utf8");
       loadCsv(tmpPath);
     } catch (err) {
       errors.push(err.message);
@@ -538,8 +555,14 @@ function validateGuiPayload(payload = {}, basePaths = PATHS) {
   }
 
   return errors.length
-    ? { errors, ok: false }
-    : { message: "Validação preliminar aprovada.", ok: true };
+    ? { errors, ok: false, syntaxIssues }
+    : {
+        message: syntaxIssues.length
+          ? "Validação preliminar aprovada com avisos de sintaxe no modelo."
+          : "Validação preliminar aprovada.",
+        ok: true,
+        syntaxIssues,
+      };
 }
 
 function validateNamedTextFile(file, extension, label, errors) {
@@ -557,25 +580,6 @@ function validateNamedTextFile(file, extension, label, errors) {
 
   if (!content.trim()) {
     errors.push(`${label}: arquivo vazio.`);
-  }
-}
-
-function validateTemplateSyntax(template, errors) {
-  const value = String(template || "");
-  const openings = (value.match(/\$\{/gu) || []).length;
-  const closings = (value.match(/\}/gu) || []).length;
-
-  if (openings > closings) {
-    errors.push("Modelo inválido: existe variável ${...} sem fechamento.");
-    return;
-  }
-
-  for (const match of value.matchAll(/\$\{([^}]+)\}/g)) {
-    try {
-      parseExpression(match[1].trim());
-    } catch (err) {
-      errors.push(`Modelo inválido em \${${match[1]}}: ${err.message}`);
-    }
   }
 }
 
@@ -1317,10 +1321,45 @@ function renderGuiHtml() {
       const file = input.files && input.files[0];
       if (!file) return Promise.resolve(null);
 
-      return file.text().then((content) => ({
-        content,
+      return file.arrayBuffer().then((buffer) => ({
+        content: decodeUploadedText(buffer),
         name: file.name,
       }));
+    }
+
+    function decodeUploadedText(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let text = "";
+
+      if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+        text = new TextDecoder("utf-8").decode(bytes.slice(3));
+        return normalizeUploadedText(text);
+      }
+
+      if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+        text = new TextDecoder("utf-16le").decode(bytes.slice(2));
+        return normalizeUploadedText(text);
+      }
+
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch (_) {
+        try {
+          text = new TextDecoder("windows-1252").decode(bytes);
+        } catch (err) {
+          text = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+        }
+      }
+
+      return normalizeUploadedText(text);
+    }
+
+    function normalizeUploadedText(text) {
+      return String(text || "")
+        .replace(/^\\ufeff/u, "")
+        .replace(/\\r\\n/g, "\\n")
+        .replace(/\\r/g, "\\n")
+        .replace(/[\\u2028\\u2029]/gu, "\\n");
     }
 
     function validateLocal(payload) {
@@ -1338,11 +1377,23 @@ function renderGuiHtml() {
         errors.push("A base de clientes precisa ser .csv.");
       }
 
-      if ((payload.templateText.match(/\\$\\{/g) || []).length > (payload.templateText.match(/\\}/g) || []).length) {
-        errors.push("Há uma variável \${...} sem fechamento no modelo.");
-      }
-
       return errors;
+    }
+
+    function formatSyntaxIssue(issue, index) {
+      const location = "Linha " + issue.line + ", coluna " + issue.column;
+      const snippet = issue.snippet ? "\\nTrecho: " + issue.snippet : "";
+      return (index + 1) + ". " + location + ": " + issue.message + snippet;
+    }
+
+    function confirmTemplateSyntaxIssues(issues) {
+      if (!issues || !issues.length) return true;
+
+      return window.confirm(
+        "Atenção: foram encontrados possíveis erros de sintaxe no modelo selecionado.\\n\\n" +
+        issues.map(formatSyntaxIssue).join("\\n\\n") +
+        "\\n\\nO padrão seguro é abortar. Deseja enviar mesmo assim?"
+      );
     }
 
     async function buildPayload() {
@@ -1453,7 +1504,18 @@ function renderGuiHtml() {
         const localErrors = validateLocal(payload);
         if (localErrors.length) throw new Error(localErrors.join("\\n"));
 
-        await postJson("/api/validate", payload);
+        const validation = await postJson("/api/validate", payload);
+
+        if (!confirmTemplateSyntaxIssues(validation.syntaxIssues)) {
+          showMessage("Envio abortado por possíveis erros de sintaxe no modelo.", "error");
+          button.disabled = false;
+          return;
+        }
+
+        if (validation.syntaxIssues && validation.syntaxIssues.length) {
+          payload.confirmTemplateSyntaxIssues = true;
+        }
+
         await postJson("/api/run", payload);
         showMessage("Processamento iniciado.", "ok");
         await refreshStatus();

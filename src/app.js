@@ -1,9 +1,10 @@
 const path = require("path");
+const readline = require("readline");
 
 const { PATHS, ROOT_DIR } = require("./config");
 const { parseExecutionOptions, printHelp } = require("./cli");
 const { printStartupNotice } = require("./notice");
-const { resolveExecutionPaths } = require("./data");
+const { loadTemplate, resolveExecutionPaths } = require("./data");
 const { resetSentLog } = require("./logs");
 const { formatBrowserStartupError } = require("./browser");
 const { validateRuntimeFiles } = require("./campaign");
@@ -20,6 +21,7 @@ const {
   registerGuiClientHandlers,
   startGuiServer,
 } = require("./gui");
+const { inspectTemplateSyntax } = require("./template");
 
 async function main() {
   try {
@@ -108,6 +110,8 @@ async function main() {
       return;
     }
 
+    await confirmTemplateSyntaxBeforeSend(executionPaths);
+
     if (options.resetSent) {
       resetSentLog(executionPaths.sent);
       console.log("Lista de enviados resetada: logs/enviados.csv");
@@ -126,6 +130,103 @@ async function main() {
   }
 }
 
+async function confirmTemplateSyntaxBeforeSend(executionPaths) {
+  const template = loadTemplate(executionPaths.template);
+  const issues = inspectTemplateSyntax(template);
+
+  if (issues.length === 0) {
+    return;
+  }
+
+  console.warn(formatTemplateSyntaxIssues(issues));
+
+  const confirmed = await askYesNo(
+    "Foram encontrados possíveis erros no modelo. Deseja enviar mesmo assim? Digite sim ou não [não]: ",
+  );
+
+  if (!confirmed) {
+    throw new Error("Envio abortado: possíveis erros de sintaxe no modelo não foram confirmados.");
+  }
+}
+
+function formatTemplateSyntaxIssues(issues) {
+  return [
+    "Atenção: possíveis erros de sintaxe no modelo selecionado:",
+    ...issues.map((issue, index) => {
+      const snippet = issue.snippet ? ` Trecho: ${issue.snippet}` : "";
+      return `${index + 1}. Linha ${issue.line}, coluna ${issue.column}: ${issue.message}${snippet}`;
+    }),
+  ].join("\n");
+}
+
+function askYesNo(question) {
+  if (!process.stdin.isTTY) {
+    return Promise.resolve(false);
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    const ask = () => {
+      rl.question(question, (answer) => {
+        const normalized = normalizeYesNoAnswer(answer);
+
+        if (!normalized) {
+          rl.close();
+          resolve(false);
+          return;
+        }
+
+        if (normalized === "yes") {
+          rl.close();
+          resolve(true);
+          return;
+        }
+
+        if (normalized === "no") {
+          rl.close();
+          resolve(false);
+          return;
+        }
+
+        console.log("Responda com sim ou não.");
+        ask();
+      });
+    };
+
+    ask();
+  });
+}
+
+function normalizeYesNoAnswer(answer) {
+  const value = String(answer || "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "");
+
+  if (!value) {
+    return "";
+  }
+
+  if (["s", "sim", "y", "yes"].includes(value)) {
+    return "yes";
+  }
+
+  if (["n", "nao", "no"].includes(value)) {
+    return "no";
+  }
+
+  return "invalid";
+}
+
 module.exports = {
+  askYesNo,
+  confirmTemplateSyntaxBeforeSend,
+  formatTemplateSyntaxIssues,
   main,
+  normalizeYesNoAnswer,
 };

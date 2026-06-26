@@ -17,6 +17,7 @@ const {
   evaluateExpression,
   evaluateFilterExpression,
   formatBrowserStartupError,
+  formatTemplateSyntaxIssues,
   formatNameForMessage,
   getBrowserExecutableNames,
   getExistingBrowserConnectionConfig,
@@ -27,11 +28,15 @@ const {
   getWhatsAppClientId,
   getWindowsBrowserCandidates,
   isOggAudioOnly,
+  inspectTemplateSyntax,
   loadAlreadySent,
   loadClientes,
   loadCsv,
+  loadTemplate,
   loadSentRecords,
   materializeGuiExecutionPaths,
+  normalizeTemplateText,
+  normalizeYesNoAnswer,
   parseExecutionOptions,
   parseExpression,
   parseTemplateParts,
@@ -368,8 +373,45 @@ test("substitui $diatarde$ conforme horário e início de frase", () => {
   );
 });
 
+test("normaliza quebras Windows/Linux para envio sem remover recuos", () => {
+  const { paths } = createFixture({
+    template: "Linha 1\r\n  Linha recuada\rLinha antiga\u2028Linha unicode\u2029${nome}",
+  });
+  const loaded = loadTemplate(paths.template);
+  const applied = applyTemplate(loaded, { nome: "joão ação" });
+
+  assert.equal(
+    loaded,
+    "Linha 1\n  Linha recuada\nLinha antiga\nLinha unicode\n${nome}",
+  );
+  assert.equal(
+    applied,
+    "Linha 1\n  Linha recuada\nLinha antiga\nLinha unicode\nJoão Ação",
+  );
+  assert.equal(
+    normalizeTemplateText("\ufeffA\r\n\tB\rC\u2028D"),
+    "A\n\tB\nC\nD",
+  );
+});
+
+test("detecta possíveis erros confirmáveis de sintaxe no modelo", () => {
+  const issues = inspectTemplateSyntax(
+    "Olá {nome}\nValor ${valor+}\nFechamento solto }\nAberto ${conta",
+  );
+
+  assert.ok(issues.some((issue) => issue.code === "BRACES_WITHOUT_DOLLAR"));
+  assert.ok(issues.some((issue) => issue.code === "INVALID_TEMPLATE_EXPRESSION"));
+  assert.ok(issues.some((issue) => issue.code === "UNCLOSED_TEMPLATE_EXPRESSION"));
+  assert.match(formatTemplateSyntaxIssues(issues), /possíveis erros de sintaxe/);
+  assert.equal(normalizeYesNoAnswer("SIM"), "yes");
+  assert.equal(normalizeYesNoAnswer("sím"), "yes");
+  assert.equal(normalizeYesNoAnswer("NÃO"), "no");
+  assert.equal(normalizeYesNoAnswer(""), "");
+  assert.equal(normalizeYesNoAnswer("talvez"), "invalid");
+});
+
 test("interpreta notação markdown de anexo preservando a ordem", () => {
-  const parts = parseTemplateParts("Antes\n![](arquivo.pdf)\nDepois");
+  const parts = parseTemplateParts("Antes\r\n![](arquivo.pdf)\r\nDepois");
 
   assert.deepEqual(parts, [
     { type: "text", value: "Antes\n" },
@@ -430,6 +472,20 @@ test("GUI bloqueia textarea e arquivo de modelo usados ao mesmo tempo", () => {
 
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /apenas uma fonte de modelo/);
+});
+
+test("GUI retorna avisos confirmáveis para sintaxe suspeita do modelo", () => {
+  const { paths } = createFixture();
+  const result = validateGuiPayload(
+    {
+      templateText: "Olá {nome}\nValor ${valor+}",
+    },
+    paths,
+  );
+
+  assert.equal(result.ok, true);
+  assert.ok(result.syntaxIssues.some((issue) => issue.code === "BRACES_WITHOUT_DOLLAR"));
+  assert.ok(result.syntaxIssues.some((issue) => issue.code === "INVALID_TEMPLATE_EXPRESSION"));
 });
 
 test("GUI materializa entradas temporárias sem alterar arquivos padrão", () => {

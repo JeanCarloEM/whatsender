@@ -18,6 +18,9 @@ Regras aplicadas ao modelo:
 - `${(valor+taxa)*2}` executa conta simples.
 - `$diatarde$` vira `bom dia` antes das 12h e `boa tarde` a partir das 12h.
 - `![](CAMINHO_OU_URL)` vira anexo no ponto em que aparece.
+- Quebras Windows (`CRLF`), Linux/macOS (`LF`), `CR` isolado e separadores Unicode sao normalizados para `LF` antes do envio; recuos, espacos e tabulacoes intencionais sao preservados.
+
+Antes do envio efetivo, o modelo e analisado por potenciais erros de sintaxe. Exemplos: `{nome}` sem `$`, `${valor+}` com expressão inválida, `${nome` sem fechamento e `}` solto. Na GUI, a tela abre uma confirmação; na CLI, o terminal pergunta `sim` ou `não`, aceitando variações de maiúsculas/minúsculas e acentos. Se a resposta for vazia, inválida ou negativa, o envio é abortado.
 
 Funcoes de formatacao em `${...}`:
 

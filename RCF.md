@@ -55,6 +55,8 @@ Quando a GUI fornecer conteúdo via textarea ou arquivo `.md`, esse conteúdo de
 
 O conteúdo textual deve ser preservado conforme definido no arquivo, após substituição de variáveis e interpretação dos anexos Markdown.
 
+Quebras de linha de Windows (`CRLF`), Linux/macOS (`LF`), `CR` isolado e separadores Unicode devem ser normalizados para `LF` antes do envio, por ser o formato mais estável para WhatsApp Web. Recuos, espaços e tabulações intencionais do texto devem ser preservados.
+
 ### RN003 - Variáveis do Template
 
 Variáveis devem usar o padrão `${nome}`, `${telefone}`, `${conta}` ou qualquer outra coluna existente no CSV.
@@ -64,6 +66,8 @@ O nome da variável dentro de `${}` deve ser insensível a maiúsculas e minúsc
 Dentro de `${...}`, também devem ser aceitas expressões matemáticas simples com colunas do CSV, por exemplo `${(valor+taxa)*2}`.
 
 O marcador `$diatarde$` deve ser substituído no momento do envio por `bom dia` ou `boa tarde`. A partir das 12h, usar `boa tarde`; antes disso, `bom dia`. Se o marcador estiver no início da frase ou logo após ponto seguido de espaços, a primeira letra deve ser maiúscula.
+
+Antes do envio efetivo, o sistema deve verificar potenciais erros de sintaxe no modelo, incluindo `${...}` aberto sem fechamento, expressão inválida dentro de `${...}`, `{...}` sem `$` e chave `}` solta. Quando houver aviso, a GUI deve exibir confirmação explícita e a CLI deve perguntar `sim` ou `não`, sem diferenciar maiúsculas/minúsculas ou acentuação. O padrão deve ser abortar.
 
 Caso a coluna não exista:
 

@@ -62,31 +62,48 @@ function readTextFile(filePath, label) {
 }
 
 function decodeTextBuffer(buffer) {
+  let decoded;
+
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
-    return buffer.subarray(3).toString("utf8");
+    decoded = buffer.subarray(3).toString("utf8");
+    return normalizeTextContent(decoded);
   }
 
   if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
-    return buffer.subarray(2).toString("utf16le");
+    decoded = buffer.subarray(2).toString("utf16le");
+    return normalizeTextContent(decoded);
   }
 
   if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
-    return decodeUtf16Be(buffer.subarray(2));
+    decoded = decodeUtf16Be(buffer.subarray(2));
+    return normalizeTextContent(decoded);
   }
 
   if (looksLikeUtf16Le(buffer)) {
-    return buffer.toString("utf16le");
+    decoded = buffer.toString("utf16le");
+    return normalizeTextContent(decoded);
   }
 
   if (looksLikeUtf16Be(buffer)) {
-    return decodeUtf16Be(buffer);
+    decoded = decodeUtf16Be(buffer);
+    return normalizeTextContent(decoded);
   }
 
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch (_) {
-    return decodeWindows1252(buffer);
+    decoded = decodeWindows1252(buffer);
   }
+
+  return normalizeTextContent(decoded);
+}
+
+function normalizeTextContent(text) {
+  return String(text || "")
+    .replace(/^\ufeff/u, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u2028\u2029]/gu, "\n");
 }
 
 function looksLikeUtf16Le(buffer) {
@@ -548,7 +565,9 @@ module.exports = {
   loadCsv,
   loadTemplate,
   parseListFilter,
+  decodeTextBuffer,
   readTextFile,
+  normalizeTextContent,
   resolveCheckInputPath,
   resolveExecutionPaths,
   resolveListCsvPath,

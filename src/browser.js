@@ -83,38 +83,38 @@ function getInstalledBrowserCandidates(platform = os.platform()) {
 
 function getWindowsBrowserCandidates() {
   const roots = [
-    process.env.ProgramFiles,
-    process.env["ProgramFiles(x86)"],
+    process.env.ProgramFiles || "C:\\Program Files",
+    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
     process.env.LOCALAPPDATA,
   ].filter(Boolean);
 
   const relativePaths = [
-    path.join("Google", "Chrome", "Application", "chrome.exe"),
-    path.join("Google", "Chrome Beta", "Application", "chrome.exe"),
-    path.join("Chromium", "Application", "chrome.exe"),
-    path.join("Microsoft", "Edge", "Application", "msedge.exe"),
+    path.win32.join("Google", "Chrome", "Application", "chrome.exe"),
+    path.win32.join("Google", "Chrome Beta", "Application", "chrome.exe"),
+    path.win32.join("Chromium", "Application", "chrome.exe"),
+    path.win32.join("Microsoft", "Edge", "Application", "msedge.exe"),
   ];
 
   return roots.flatMap((root) =>
-    relativePaths.map((relativePath) => path.join(root, relativePath)),
+    relativePaths.map((relativePath) => path.win32.join(root, relativePath)),
   );
 }
 
 function getMacBrowserCandidates() {
   const roots = [
     "/Applications",
-    process.env.HOME ? path.join(process.env.HOME, "Applications") : undefined,
+    process.env.HOME ? path.posix.join(process.env.HOME, "Applications") : undefined,
   ].filter(Boolean);
 
   const relativePaths = [
-    path.join("Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
-    path.join("Google Chrome Beta.app", "Contents", "MacOS", "Google Chrome Beta"),
-    path.join("Chromium.app", "Contents", "MacOS", "Chromium"),
-    path.join("Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"),
+    path.posix.join("Google Chrome.app", "Contents", "MacOS", "Google Chrome"),
+    path.posix.join("Google Chrome Beta.app", "Contents", "MacOS", "Google Chrome Beta"),
+    path.posix.join("Chromium.app", "Contents", "MacOS", "Chromium"),
+    path.posix.join("Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge"),
   ];
 
   return roots.flatMap((root) =>
-    relativePaths.map((relativePath) => path.join(root, relativePath)),
+    relativePaths.map((relativePath) => path.posix.join(root, relativePath)),
   );
 }
 

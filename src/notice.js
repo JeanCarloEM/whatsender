@@ -15,9 +15,16 @@ const TERMINAL_NOTICE_WIDTH = 100;
 const ANSI = {
   cyan: "\x1b[36m",
   dim: "\x1b[2m",
+  red: "\x1b[31m",
   reset: "\x1b[0m",
   yellow: "\x1b[33m",
 };
+
+const COMPLIANCE_NOTICE = [
+  "Aviso de independência e responsabilidade: este software não é afiliado, patrocinado, endossado ou mantido pelo WhatsApp, pela Meta ou por suas empresas afiliadas. Use-o por sua conta e risco.",
+  "O uso indevido, abusivo ou em desacordo com leis, termos de serviço ou políticas da plataforma pode resultar em restrições, bloqueio ou banimento da conta do WhatsApp, inclusive com limitações para recuperação ou desbloqueio.",
+  "O autor não se responsabiliza por banimentos, bloqueios, perdas, danos ou qualquer uso indevido do software. Leia este aviso e o disclaimer abaixo antes de prosseguir.",
+].join("\n");
 
 const DISCLAIMER =
   "Este software é fornecido estritamente como está e como disponível, sem garantias expressas, implícitas, legais, comerciais, técnicas, operacionais, de disponibilidade, segurança, conformidade, licitude, não infração ou adequação a qualquer finalidade. O projeto é destinado exclusivamente a usos legítimos, proporcionais e consentidos, como comunicação com clientes reais, assinantes, contatos que autorizaram contato ou públicos próprios e legítimos. O autor é expressamente contrário ao uso massivo, abusivo, enganoso, invasivo, como spam, scraping, assédio, fraude, envio sem consentimento ou qualquer prática que viole leis, termos de serviço, privacidade ou direitos de terceiros. O uso, configuração, conteúdo enviado, destinatários, credenciais, automações e consequências são de responsabilidade exclusiva do usuário. Nada constitui consultoria, serviço gerenciado, vínculo, autorização para uso indevido, promessa de resultado ou assunção de responsabilidade pelo autor, que não responderá por danos, perdas, bloqueios, sanções, incidentes, violações, reclamações ou responsabilidades civis, criminais, trabalhistas, administrativas, regulatórias, contratuais ou de qualquer outra natureza.";
@@ -49,6 +56,10 @@ function buildTerminalNoticeBox(options = {}) {
       color: "yellow",
       text: `Licença: ${LICENSE_NAME} (${LICENSE_LOCAL_PATH}; ${LICENSE_URL})`,
     },
+    { text: "" },
+    ...COMPLIANCE_NOTICE.split("\n").flatMap((line) =>
+      wrapText(line, innerWidth).map((text) => ({ color: "red", text })),
+    ),
     { text: "" },
     { color: "cyan", text: "Disclaimer:" },
     ...wrapText(DISCLAIMER, innerWidth).map((text) => ({ text })),
@@ -111,6 +122,7 @@ function colorize(text, colorName, enabled) {
 module.exports = {
   AUTHOR,
   AUTHOR_URL,
+  COMPLIANCE_NOTICE,
   DISCLAIMER,
   LICENSE_LOCAL_PATH,
   LICENSE_NAME,

@@ -15,6 +15,7 @@ const { PATHS, ROOT_DIR } = require("./config");
 const {
   AUTHOR,
   AUTHOR_URL,
+  COMPLIANCE_NOTICE,
   DISCLAIMER,
   LICENSE_LOCAL_PATH,
   LICENSE_NAME,
@@ -1240,6 +1241,30 @@ function renderGuiHtml() {
       font-weight: 700;
     }
 
+    .compliance-notice {
+      background: #fff1f0;
+      border: 1px solid #fecdca;
+      border-left: 4px solid var(--danger);
+      border-radius: 8px;
+      color: #7a271a;
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+      margin: 12px 0;
+      padding: 11px 12px;
+    }
+
+    .compliance-notice p {
+      margin: 0;
+    }
+
+    .compliance-notice strong {
+      color: #7a271a;
+      font-weight: 900;
+    }
+
     .emoji-list {
       display: flex;
       flex-wrap: wrap;
@@ -1425,6 +1450,7 @@ function renderGuiHtml() {
           <p><strong>Autor:</strong> <a href="${AUTHOR_URL}" target="_blank" rel="noreferrer">${AUTHOR}</a></p>
           <p><strong>Repositório:</strong> <a href="${REPOSITORY_URL}" target="_blank" rel="noreferrer">${REPOSITORY_URL}</a></p>
           <p><strong>Licença:</strong> <a href="/license" target="_blank" rel="noreferrer">${LICENSE_NAME}</a> <span class="hint">(${LICENSE_LOCAL_PATH}; <a href="${LICENSE_URL}" target="_blank" rel="noreferrer">${LICENSE_URL}</a>)</span></p>
+          <div class="compliance-notice" role="note" aria-label="Aviso legal">${renderComplianceNoticeHtml()}</div>
           <div class="hint">${DISCLAIMER}</div>
         </section>
 
@@ -1963,6 +1989,39 @@ function renderGuiHtml() {
   </script>
 </body>
 </html>`;
+}
+
+function renderComplianceNoticeHtml() {
+  return COMPLIANCE_NOTICE
+    .split("\n")
+    .map((line) => `<p>${formatComplianceNoticeLine(line)}</p>`)
+    .join("");
+}
+
+function formatComplianceNoticeLine(line) {
+  const highlights = [
+    "não é afiliado, patrocinado, endossado ou mantido",
+    "Use-o por sua conta e risco",
+    "restrições, bloqueio ou banimento",
+    "O autor não se responsabiliza",
+    "disclaimer abaixo",
+  ];
+  let html = escapeHtml(line);
+
+  for (const phrase of highlights) {
+    const escapedPhrase = escapeHtml(phrase);
+    html = html.split(escapedPhrase).join(`<strong>${escapedPhrase}</strong>`);
+  }
+
+  return html;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 module.exports = {

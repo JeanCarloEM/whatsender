@@ -7,6 +7,7 @@ const path = require("path");
 const { PATHS, ROOT_DIR } = require("./config");
 const {
   AUTHOR,
+  AUTHOR_URL,
   DISCLAIMER,
   LICENSE_LOCAL_PATH,
   LICENSE_NAME,
@@ -1414,7 +1415,7 @@ function renderGuiHtml() {
 
         <section>
           <h2>Licença</h2>
-          <p><strong>Autor:</strong> ${AUTHOR}</p>
+          <p><strong>Autor:</strong> <a href="${AUTHOR_URL}" target="_blank" rel="noreferrer">${AUTHOR}</a></p>
           <p><strong>Repositório:</strong> <a href="${REPOSITORY_URL}" target="_blank" rel="noreferrer">${REPOSITORY_URL}</a></p>
           <p><strong>Licença:</strong> <a href="/license" target="_blank" rel="noreferrer">${LICENSE_NAME}</a> <span class="hint">(${LICENSE_LOCAL_PATH}; <a href="${LICENSE_URL}" target="_blank" rel="noreferrer">${LICENSE_URL}</a>)</span></p>
           <div class="hint">${DISCLAIMER}</div>
@@ -1962,6 +1963,7 @@ module.exports = {
   materializeGuiExecutionPaths,
   openGuiWhenBrowserIsAvailable,
   registerGuiClientHandlers,
+  renderGuiHtml,
   resolveGuiProvidedFilePath,
   resolveGuiTemplateBaseDir,
   startGuiServer,

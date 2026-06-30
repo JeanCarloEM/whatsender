@@ -1142,6 +1142,17 @@ test("GUI permite escolher sessão a remover sem alternar para ela", () => {
   );
 });
 
+test("GUI renderiza barra de progresso fixa no topo", () => {
+  const html = renderGuiHtml();
+
+  assert.match(html, /id="topProgress"/);
+  assert.match(html, /id="topProgressBar"/);
+  assert.match(html, /\.top-progress\s*\{/);
+  assert.match(html, /position: fixed/);
+  assert.match(html, /height: 0\.5rem/);
+  assert.match(html, /renderTopProgress/);
+});
+
 test("parser avalia filtros complexos contra fixture versionada", () => {
   const { clientes, expected } = loadComplexExpressionFixture();
 

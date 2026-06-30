@@ -254,6 +254,8 @@ A GUI deve ser servida por servidor HTTP leve local, sem transmitir dados para s
 
 A interface local deve ser iniciada no começo do fluxo para exibir status de autenticação e carregamento do WhatsApp. O envio só pode ser liberado após o WhatsApp ficar pronto.
 
+Durante o processamento de envio, a GUI deve exibir uma barra de progresso fina, fixa no topo da janela, visível apenas enquanto houver execução ativa. A barra deve avançar conforme destinatários forem concluídos, pulados ou falharem, com transição suave, animação discreta e cores profissionais que contrastem com a página sem prejudicar a leitura dos demais componentes.
+
 Quando possível, a GUI deve ser aberta como aba no mesmo navegador controlado pelo WhatsApp Web. Se o navegador controlado ainda não estiver disponível ou não permitir nova aba, a GUI pode ser aberta no navegador padrão, registrando esse fallback de forma clara.
 
 Ao selecionar um arquivo `.md`, a GUI deve executar pré-análise assíncrona dos anexos locais referenciados no modelo, sem iniciar envio e sem bloquear a interface. Se algum anexo não for localizado, a tela deve exibir aviso curto em vermelho próximo ao seletor do arquivo e disponibilizar campo para informar a pasta local de referência dos anexos. Essa pasta deve ser validada como diretório local existente antes da execução.

@@ -193,10 +193,20 @@ function createGuiState(paths = PATHS) {
     finishedAt: null,
     lastError: "",
     log: [],
+    progress: createEmptyGuiProgress(),
     startedAt: null,
     status: "iniciando_whatsapp",
     sessions: listSessions(paths),
     whatsappReady: false,
+  };
+}
+
+function createEmptyGuiProgress() {
+  return {
+    active: false,
+    current: 0,
+    percent: 0,
+    total: 0,
   };
 }
 
@@ -461,6 +471,10 @@ async function routeGuiRequest(req, res, context) {
       context.state.busy = false;
       context.state.finishedAt = new Date().toISOString();
       context.state.lastError = err.message || String(err);
+      context.state.progress = {
+        ...(context.state.progress || createEmptyGuiProgress()),
+        active: false,
+      };
       context.state.status = "erro";
       pushGuiLog(context.state, {
         message: `Processamento interrompido: ${context.state.lastError}`,
@@ -487,6 +501,12 @@ async function runGuiCampaign(payload, context) {
   state.finishedAt = null;
   state.lastError = "";
   state.log = [];
+  state.progress = {
+    active: true,
+    current: 0,
+    percent: 0,
+    total: 0,
+  };
   state.startedAt = new Date().toISOString();
   state.status = "validando";
 
@@ -511,6 +531,12 @@ async function runGuiCampaign(payload, context) {
     message: `Pré-validação RCF concluída. Clientes: ${validation.clientesCount}.`,
     type: "info",
   });
+  state.progress = {
+    active: true,
+    current: 0,
+    percent: 0,
+    total: validation.clientesCount,
+  };
 
   if (options.resetSent) {
     resetSentLog(executionPaths.sent);
@@ -531,6 +557,12 @@ async function runGuiCampaign(payload, context) {
   await processCampaign(context.client, executionPaths, options);
   state.busy = false;
   state.finishedAt = new Date().toISOString();
+  state.progress = {
+    active: false,
+    current: state.progress && state.progress.total ? state.progress.total : 0,
+    percent: 100,
+    total: state.progress ? state.progress.total : 0,
+  };
   state.status = "concluido";
   state.whatsappReady = true;
 }
@@ -808,10 +840,49 @@ function pushGuiLog(state, event) {
   };
 
   state.log.push(entry);
+  updateGuiProgressFromEvent(state, event);
 
   if (state.log.length > 300) {
     state.log.splice(0, state.log.length - 300);
   }
+}
+
+function updateGuiProgressFromEvent(state, event = {}) {
+  const progressTypes = new Set(["done", "error", "sent", "skip"]);
+  const total = Number.parseInt(event.total, 10);
+  const current = Number.parseInt(event.current, 10);
+
+  if (!state.progress) {
+    state.progress = createEmptyGuiProgress();
+  }
+
+  if (Number.isFinite(total) && total > 0) {
+    state.progress.total = total;
+  }
+
+  if (event.type === "done") {
+    const finalTotal = state.progress.total || total || 0;
+    state.progress = {
+      active: false,
+      current: finalTotal,
+      percent: finalTotal > 0 ? 100 : 0,
+      total: finalTotal,
+    };
+    return;
+  }
+
+  if (!progressTypes.has(event.type) || !Number.isFinite(current)) {
+    return;
+  }
+
+  const safeTotal = Math.max(state.progress.total || total || current, 1);
+  const safeCurrent = Math.max(0, Math.min(current, safeTotal));
+  state.progress = {
+    active: true,
+    current: safeCurrent,
+    percent: Math.round((safeCurrent / safeTotal) * 1000) / 10,
+    total: safeTotal,
+  };
 }
 
 function scheduleGuiRestart(context, sessionId) {
@@ -1105,6 +1176,52 @@ function renderGuiHtml() {
       background: var(--bg);
       color: var(--text);
       font: 15px/1.52 var(--font-sans);
+    }
+
+    .top-progress {
+      background: rgba(214, 224, 235, 0.78);
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+      height: 0.5rem;
+      left: 0;
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+      position: fixed;
+      right: 0;
+      top: 0;
+      transform: translateY(-100%);
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      z-index: 50;
+    }
+
+    .top-progress.active {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .top-progress-bar {
+      background: linear-gradient(90deg, #0e9384 0%, #175cd3 52%, #7a5af8 100%);
+      border-radius: 0 999px 999px 0;
+      box-shadow: 0 0 18px rgba(23, 92, 211, 0.34);
+      height: 100%;
+      min-width: 0;
+      position: relative;
+      transform-origin: left center;
+      transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      width: 0%;
+    }
+
+    .top-progress.active .top-progress-bar::after {
+      animation: progress-sheen 1.35s ease-in-out infinite;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+      content: "";
+      inset: 0;
+      position: absolute;
+      transform: translateX(-100%);
+    }
+
+    @keyframes progress-sheen {
+      to { transform: translateX(100%); }
     }
 
     main {
@@ -1462,6 +1579,9 @@ function renderGuiHtml() {
   </style>
 </head>
 <body>
+  <div id="topProgress" class="top-progress" aria-hidden="true">
+    <div id="topProgressBar" class="top-progress-bar"></div>
+  </div>
   <main>
     <header>
       <div>
@@ -1631,6 +1751,8 @@ function renderGuiHtml() {
     const message = document.getElementById("message");
     const log = document.getElementById("log");
     const statusPill = document.getElementById("statusPill");
+    const topProgress = document.getElementById("topProgress");
+    const topProgressBar = document.getElementById("topProgressBar");
     const sessionSelect = document.getElementById("sessionSelect");
     const newSessionButton = document.getElementById("newSessionButton");
     const renameSessionButton = document.getElementById("renameSessionButton");
@@ -1832,6 +1954,7 @@ function renderGuiHtml() {
       const ready = Boolean(state.whatsappReady);
       statusPill.textContent = state.busy ? "Executando" : statusLabel(state.status, ready);
       button.disabled = Boolean(state.busy) || !ready;
+      renderTopProgress(state.progress || {});
       renderSessions(state);
 
       log.innerHTML = "";
@@ -1848,6 +1971,15 @@ function renderGuiHtml() {
         log.append(row);
       }
       log.scrollTop = log.scrollHeight;
+    }
+
+    function renderTopProgress(progress) {
+      const active = Boolean(progress && progress.active);
+      const percent = Number.isFinite(Number(progress.percent))
+        ? Math.max(0, Math.min(100, Number(progress.percent)))
+        : 0;
+      topProgress.classList.toggle("active", active);
+      topProgressBar.style.width = active ? Math.max(percent, 3) + "%" : "0%";
     }
 
     function renderSessions(state) {

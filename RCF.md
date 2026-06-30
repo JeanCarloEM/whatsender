@@ -109,6 +109,8 @@ Imagens devem ser enviadas como mídia; outros arquivos, como PDF ou ZIP, devem 
 
 Arquivos `.ogg` devem ser inspecionados. Se forem contêiner OGG apenas de áudio, devem ser enviados como mensagem de voz separada no ponto exato da notação Markdown, usando recurso de áudio/voz do WhatsApp Web, MIME `audio/ogg` e sem envio como documento. Nesses casos, não devem absorver texto adjacente como legenda.
 
+O envio de anexos deve ler o arquivo local em memória pelo Node.js antes de repassá-lo ao WhatsApp Web, evitando dependência posterior do caminho original, inclusive em diretórios com espaços, OneDrive ou fora do repositório. Falhas transitórias do navegador/WhatsApp Web durante envio de mídia, como erro de protocolo, promessa coletada, contexto destruído ou fechamento temporário do alvo, devem ser retentadas silenciosamente com uma nova instância de mídia. Para `.ogg` de áudio, se o envio como mensagem de voz falhar após as tentativas, o sistema deve tentar enviar o mesmo arquivo como áudio comum, ainda sem documento, antes de registrar erro final.
+
 ### RN008 - Tratamento de Telefone
 
 Antes de qualquer validação ou envio:
@@ -163,6 +165,8 @@ Em caso de interrupção inesperada, queda do sistema, perda de conexão ou rein
 ### RN013 - Isolamento de Falhas
 
 Erros individuais devem ser registrados e não devem interromper o lote.
+
+Erros finais de envio devem incluir identificação legível do destinatário quando houver coluna `nome`, além do telefone registrado na coluna própria do log.
 
 ### RN014 - Controle de Velocidade
 

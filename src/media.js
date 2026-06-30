@@ -12,11 +12,13 @@ const path = require("path");
 const { fileURLToPath } = require("url");
 const { MessageMedia } = require("whatsapp-web.js");
 
-const { PATHS, ROOT_DIR } = require("./config");
+const { PATHS, ROOT_DIR, readIntegerEnv } = require("./config");
 const { hashValue } = require("./utils");
 const { parseTemplateParts } = require("./template");
 
 const CAPTION_POSITION = Symbol("captionPosition");
+const MEDIA_SEND_RETRIES = Math.max(1, readIntegerEnv("MEDIA_SEND_RETRIES", 3));
+const MEDIA_SEND_RETRY_DELAY_MS = readIntegerEnv("MEDIA_SEND_RETRY_DELAY_MS", 1200);
 const AUDIO_OGG_MARKERS = [
   Buffer.from("OpusHead", "ascii"),
   Buffer.from([0x01, 0x76, 0x6f, 0x72, 0x62, 0x69, 0x73]),
@@ -266,15 +268,13 @@ function createMessageMediaFromFile(filePath) {
 
   try {
     stat = fs.statSync(normalizedPath);
-    const media = MessageMedia.fromFilePath(normalizedPath);
-    media.filename = filename;
-    media.filesize = stat.size;
-
-    if (!media.mimetype) {
-      media.mimetype = inferMediaMimeType(normalizedPath);
-    }
-
-    return media;
+    const data = fs.readFileSync(normalizedPath).toString("base64");
+    return new MessageMedia(
+      inferMediaMimeType(normalizedPath),
+      data,
+      filename,
+      stat.size,
+    );
   } catch (err) {
     throw new Error(`Falha ao ler anexo: ${normalizedPath}. ${err.message}`);
   }
@@ -449,42 +449,104 @@ async function sendRenderedTemplate(client, chatId, renderedTemplate, paths = PA
     }
 
     const filePath = await resolveMediaPath(part.source, paths, downloadCache);
-    const media = createMessageMediaFromFile(filePath);
 
     if (isOggAudioOnly(filePath)) {
-      await sendOggVoiceMessage(client, chatId, media, part);
+      await sendOggVoiceMessage(client, chatId, filePath, part);
       continue;
     }
 
+    const media = createMessageMediaFromFile(filePath);
     const options = {
       sendMediaAsDocument: shouldSendAsDocument(media),
+      waitUntilMsgSent: true,
     };
 
     if (part.caption) {
       options.caption = part.caption;
     }
 
-    await client.sendMessage(chatId, media, options);
+    await sendMediaMessageWithRetry(client, chatId, () => createMessageMediaFromFile(filePath), options, {
+      label: path.basename(filePath),
+    });
   }
 }
 
-async function sendOggVoiceMessage(client, chatId, media, part) {
+async function sendOggVoiceMessage(client, chatId, filePath, part) {
   const caption = normalizeCaption(part.caption);
   const captionPosition = part[CAPTION_POSITION];
-  const voiceMedia = createOggVoiceMedia(media);
+  const filename = path.basename(filePath);
 
   if (caption && captionPosition === "before") {
     await client.sendMessage(chatId, caption);
   }
 
-  await client.sendMessage(chatId, voiceMedia, {
-    sendAudioAsVoice: true,
-    sendMediaAsDocument: false,
-  });
+  try {
+    await sendMediaMessageWithRetry(
+      client,
+      chatId,
+      () => createOggVoiceMedia(createMessageMediaFromFile(filePath)),
+      {
+        sendAudioAsVoice: true,
+        sendMediaAsDocument: false,
+        waitUntilMsgSent: true,
+      },
+      {
+        label: filename,
+      },
+    );
+  } catch (voiceErr) {
+    await sendMediaMessageWithRetry(
+      client,
+      chatId,
+      () => createMessageMediaFromFile(filePath),
+      {
+        sendAudioAsVoice: false,
+        sendMediaAsDocument: false,
+        waitUntilMsgSent: true,
+      },
+      {
+        label: filename,
+        previousError: voiceErr,
+      },
+    );
+  }
 
   if (caption && captionPosition === "after") {
     await client.sendMessage(chatId, caption);
   }
+}
+
+async function sendMediaMessageWithRetry(client, chatId, mediaFactory, options = {}, context = {}) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= MEDIA_SEND_RETRIES; attempt += 1) {
+    try {
+      return await client.sendMessage(chatId, mediaFactory(), options);
+    } catch (err) {
+      lastError = err;
+
+      if (attempt >= MEDIA_SEND_RETRIES || !isTransientMediaSendError(err)) {
+        break;
+      }
+
+      await delay(MEDIA_SEND_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  const previous = context.previousError
+    ? ` Tentativa como áudio de voz falhou antes: ${context.previousError.message || context.previousError}.`
+    : "";
+  const label = context.label ? ` (${context.label})` : "";
+  throw new Error(`Falha ao enviar anexo${label}: ${lastError.message || lastError}.${previous}`);
+}
+
+function isTransientMediaSendError(err) {
+  const message = err && err.message ? err.message : String(err || "");
+  return /Protocol error|Runtime\.callFunctionOn|Promise was collected|Execution context was destroyed|Target closed|Session closed|Navigation|Timeout|ERR_/iu.test(message);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 function createOggVoiceMedia(media) {
@@ -507,8 +569,10 @@ module.exports = {
   isOggAudioOnly,
   isOggSource,
   isUrl,
+  isTransientMediaSendError,
   resolveLocalMediaPath,
   resolveMediaPath,
   sendRenderedTemplate,
+  sendMediaMessageWithRetry,
   validateTemplateMediaReferences,
 };

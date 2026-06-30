@@ -7,6 +7,7 @@
 
 process.env.MIN_DELAY_MS = "0";
 process.env.MAX_DELAY_MS = "0";
+process.env.MEDIA_SEND_RETRY_DELAY_MS = "0";
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -1254,7 +1255,7 @@ test("usa modelo selecionado e resolve anexos relativos à pasta do modelo", asy
       "sendMessage",
       "5519998240000@c.us",
       "boleto.pdf",
-      { caption: "Modelo Maria", sendMediaAsDocument: true },
+      { caption: "Modelo Maria", sendMediaAsDocument: true, waitUntilMsgSent: true },
     ],
   ]);
 });
@@ -1469,6 +1470,26 @@ test("envia somente após validação positiva e registra variáveis ausentes", 
   assert.match(fs.readFileSync(paths.warnings, "utf8"), /VARIAVEL_AUSENTE;extra/);
 });
 
+test("erro de envio registra nome do cliente no detalhe", async () => {
+  const { paths } = createFixture({
+    template: "Olá ${nome}.",
+  });
+  const client = {
+    async getNumberId(phone) {
+      return { _serialized: `${phone}@c.us` };
+    },
+    async sendMessage() {
+      throw new Error("Falha simulada no WhatsApp Web");
+    },
+  };
+
+  validateRuntimeFiles(paths, { checkBrowser: false });
+  await processCampaign(client, paths);
+
+  const errors = fs.readFileSync(paths.errors, "utf8");
+  assert.match(errors, /Cliente Maria: Falha simulada no WhatsApp Web/);
+});
+
 test("envia anexo local no ponto da notação markdown", async () => {
   const { paths } = createFixture();
   const mediaPath = path.join(path.dirname(paths.template), "arquivo.pdf");
@@ -1501,6 +1522,7 @@ test("envia anexo local no ponto da notação markdown", async () => {
   ]);
   assert.equal(calls[1].mimetype, "application/pdf");
   assert.equal(calls[1].options.sendMediaAsDocument, true);
+  assert.equal(calls[1].options.waitUntilMsgSent, true);
 });
 
 test("envia anexo final com texto como legenda da mesma mensagem", async () => {
@@ -1532,6 +1554,7 @@ test("envia anexo final com texto como legenda da mesma mensagem", async () => {
   assert.equal(calls[0].filename, "arquivo.pdf");
   assert.equal(calls[0].options.caption, "Texto da mensagem");
   assert.equal(calls[0].options.sendMediaAsDocument, true);
+  assert.equal(calls[0].options.waitUntilMsgSent, true);
 });
 
 test("envia anexo inicial com texto como legenda da mesma mensagem", async () => {
@@ -1563,6 +1586,7 @@ test("envia anexo inicial com texto como legenda da mesma mensagem", async () =>
   assert.equal(calls[0].filename, "imagem.png");
   assert.equal(calls[0].options.caption, "Texto da mensagem");
   assert.equal(calls[0].options.sendMediaAsDocument, false);
+  assert.equal(calls[0].options.waitUntilMsgSent, true);
 });
 
 test("detecta OGG apenas de áudio", () => {
@@ -1613,8 +1637,50 @@ test("envia OGG de áudio como mensagem de voz separada no ponto da notação", 
   assert.deepEqual(calls[1].options, {
     sendAudioAsVoice: true,
     sendMediaAsDocument: false,
+    waitUntilMsgSent: true,
   });
   assert.equal(calls[1].mimetype, "audio/ogg");
+});
+
+test("retry de OGG usa mídia nova e fallback para áudio comum após falha transitória de voz", async () => {
+  const { paths } = createFixture();
+  const mediaPath = path.join(path.dirname(paths.template), "audio.ogg");
+  fs.writeFileSync(mediaPath, createFakeOggAudio());
+
+  const calls = [];
+  const client = {
+    async sendMessage(to, content, options) {
+      calls.push({
+        filename: content && content.filename,
+        mimetype: content && content.mimetype,
+        options,
+        text: typeof content === "string" ? content : undefined,
+        to,
+      });
+
+      if (options && options.sendAudioAsVoice) {
+        throw new Error("Protocol error (Runtime.callFunctionOn): Promise was collected");
+      }
+    },
+  };
+
+  await sendRenderedTemplate(
+    client,
+    "5511999999999@c.us",
+    "Antes\n![](audio.ogg)\nDepois",
+    paths,
+  );
+
+  const mediaCalls = calls.filter((call) => call.filename === "audio.ogg");
+  assert.equal(mediaCalls.length, 4);
+  assert.deepEqual(mediaCalls.slice(0, 3).map((call) => call.options.sendAudioAsVoice), [
+    true,
+    true,
+    true,
+  ]);
+  assert.equal(mediaCalls[3].options.sendAudioAsVoice, false);
+  assert.equal(mediaCalls[3].options.sendMediaAsDocument, false);
+  assert.equal(mediaCalls[3].options.waitUntilMsgSent, true);
 });
 
 test("envia OGG externo absoluto com espaços usando nome seguro de arquivo", async () => {
@@ -1657,6 +1723,7 @@ test("envia OGG externo absoluto com espaços usando nome seguro de arquivo", as
   assert.deepEqual(calls[1].options, {
     sendAudioAsVoice: true,
     sendMediaAsDocument: false,
+    waitUntilMsgSent: true,
   });
   assert.equal(calls[1].mimetype, "audio/ogg");
 });
@@ -1691,6 +1758,7 @@ test("não usa legenda automática para OGG de áudio no início ou final", asyn
     "audio.ogg",
   ]);
   assert.equal(calls[1].options.sendAudioAsVoice, true);
+  assert.equal(calls[1].options.waitUntilMsgSent, true);
   assert.equal(calls[1].mimetype, "audio/ogg");
   assert.equal(calls[1].options.caption, undefined);
 });
@@ -1718,6 +1786,7 @@ test("OGG que não é apenas áudio continua como documento", async () => {
   assert.equal(calls[0].filename, "video.ogg");
   assert.equal(calls[0].options.sendMediaAsDocument, true);
   assert.equal(calls[0].options.sendAudioAsVoice, undefined);
+  assert.equal(calls[0].options.waitUntilMsgSent, true);
 });
 
 test("baixa URL de anexo uma única vez e reutiliza o cache", async () => {

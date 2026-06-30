@@ -246,17 +246,20 @@ async function processCampaign(client, paths = PATHS, options = {}) {
       });
       await sleep(delay);
     } catch (err) {
+      const nome = String(getRecordValue(cliente, "nome") || "").trim();
+      const detail = nome ? `Cliente ${nome}: ${err.message}` : err.message;
+
       appendLog(paths.errors, [
         telefone || telefoneOriginal,
         "ERRO_ENVIO",
-        err.message,
+        detail,
         new Date().toISOString(),
       ]);
 
-      status.error(`Erro ${maskPhone(telefone)}: ${err.message}`);
+      status.error(`Erro ${nome || maskPhone(telefone)}: ${err.message}`);
       emitProgress(options, {
         current: index + 1,
-        message: `Erro ${maskPhone(telefone)}: ${err.message}`,
+        message: `Erro ${nome || maskPhone(telefone)}: ${err.message}`,
         telefone: maskPhone(telefone),
         total: clientes.length,
         type: "error",
